@@ -1,0 +1,18 @@
+{
+ "version": "1.5.0",
+ "changelog": "Sistema de modelos de mensagem e badges de identificação para atendimento!",
+ "downloadUrl": "https://raw.githubusercontent.com/arthurvihoficial/five9-modelos-mensagem/refs/heads/main/src/five9-modelos.user.js",
+ "publishedAt": "2026-09-08",
+ "scripts": [
+   {
+     "id": "modelos",
+     "version": "1.5.0",
+     "downloadUrl": "https://raw.githubusercontent.com/arthurvihoficial/five9-modelos-mensagem/refs/heads/main/src/five9-modelos.user.js"
+   },
+   {
+     "id": "badges",
+     "version": "1.4.2",
+     "downloadUrl": "https://raw.githubusercontent.com/arthurvihoficial/five9-modelos-mensagem/refs/heads/main/src/five9-badges.user.js"
+   }
+ ]
+}
