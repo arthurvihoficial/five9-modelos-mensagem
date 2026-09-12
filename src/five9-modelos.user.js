@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Five9 – Modelos de Mensagem
 // @namespace    https://github.com/local/five9-templates
-// @version      1.5.0
-// @description  Painel de modelos para Five9 com pastas/tags, busca, sugestão de modelos para colar e enviar.
+// @version      1.5.1
+// @description  Painel de modelos para Five9 com pastas/tags, busca, sugestão, importação e download de mídia no chat.
 // @author       Arthur Vinícius
 // @match        https://app-atl.five9.com/clients/agent/*
 // @match        *://app-atl.five9.com/*
@@ -15,12 +15,13 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_xmlhttpRequest
+// @grant        GM_download
 // @grant        GM_openInTab
 // @grant        unsafeWindow
 // @connect      raw.githubusercontent.com
 // @connect      github.com
+// @connect      *
 // @run-at       document-idle
-// @noframes
 // ==/UserScript==
 
 /**
@@ -32,9 +33,11 @@
   const PANEL_ID = "five9-templates-panel";
   const AI_CARD_ID = "five9-ai-suggest-card";
   const UPDATE_FLOAT_ID = "five9-update-float";
+  const TOAST_ID = "five9-templates-toast";
+  const FORM_MODAL_ID = "five9-model-form-modal";
   const TARGET_KEY = "five9_msg_target_hint_v1";
   const DEFAULT_TAG = "Geral";
-  const APP_VERSION = "1.5.0";
+  const APP_VERSION = "1.5.1";
   const AI_MIN_SCORE = 2.2;
   const AI_DRAFT_MIN_SCORE = 1.6;
   const AI_DRAFT_MIN_CHARS = 2;
@@ -1277,6 +1280,15 @@
      outline: none; border-color: #2563eb;
      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
    }
+   #${PANEL_ID}-modal .ft-modal-textarea {
+     width: 100%; min-height: 140px; max-height: 42vh; resize: vertical;
+     border-radius: 6px; border: 1px solid #d1d5db; background: #f9fafb; color: #111827;
+     padding: 8px; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+   }
+   #${PANEL_ID}-modal .ft-modal-textarea:focus {
+     outline: none; border-color: #2563eb;
+     box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+   }
    #${PANEL_ID}-modal .ft-modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
    #${PANEL_ID}-modal button {
      border: 0; border-radius: 6px; padding: 8px 12px; cursor: pointer; font: inherit;
@@ -1388,6 +1400,230 @@
      z-index: 1 !important;
      pointer-events: none !important;
    }
+   .f9-img-dl-btn {
+     display: inline-flex !important;
+     align-items: center;
+     justify-content: center;
+     vertical-align: middle;
+     width: 32px;
+     height: 32px;
+     margin: 0 !important;
+     padding: 0 !important;
+     border: 1px solid #bfdbfe !important;
+     border-radius: 8px !important;
+     background: #eff6ff !important;
+     color: #1d4ed8 !important;
+     cursor: pointer;
+     box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+     flex: 0 0 auto;
+   }
+   .f9-img-dl-btn:hover {
+     background: #dbeafe !important;
+     border-color: #93c5fd !important;
+   }
+   .f9-img-dl-btn:disabled {
+     opacity: 0.65;
+     cursor: wait;
+   }
+   .f9-img-dl-btn svg {
+     width: 15px;
+     height: 15px;
+     pointer-events: none;
+   }
+   .f9-img-dl-btn.is-ok {
+     background: #ecfdf5 !important;
+     border-color: #86efac !important;
+     color: #047857 !important;
+   }
+   .f9-img-dl-btn.is-err {
+     background: #fef2f2 !important;
+     border-color: #fecaca !important;
+     color: #b91c1c !important;
+   }
+   .f9-media-dl-host {
+     position: relative !important;
+     overflow: visible !important;
+     padding-right: 44px !important;
+     box-sizing: border-box !important;
+   }
+   .f9-img-dl-btn.f9-img-dl-inline {
+     position: absolute !important;
+     top: 50% !important;
+     right: 10px !important;
+     transform: translateY(-50%) !important;
+     z-index: 6;
+   }
+   .f9-media-dl-row { display: none !important; }
+   #${PANEL_ID} .ft-import-hint {
+     font-size: 11px;
+     color: #6b7280;
+     line-height: 1.35;
+   }
+   #${PANEL_ID} .ft-status { display: none !important; }
+   #${PANEL_ID} .ft-new-row {
+     display: flex;
+     gap: 6px;
+     flex-wrap: wrap;
+     flex-shrink: 0;
+     margin-top: 10px;
+     padding-top: 10px;
+     border-top: 1px solid #e5e7eb;
+   }
+   #${PANEL_ID} .ft-new-row button[data-act="open-new"] {
+     flex: 1 1 auto; min-width: 140px;
+   }
+   #${PANEL_ID}.docked .ft-new-row {
+     margin-top: 12px;
+     padding-top: 12px;
+     border-top: 1px solid #e3e7ee;
+     gap: 8px;
+   }
+   #${PANEL_ID}.docked .ft-new-row button {
+     border-radius: 4px;
+     min-height: 32px;
+   }
+   #${PANEL_ID}.docked details.ft-add {
+     margin-top: 10px;
+   }
+   #${TOAST_ID} {
+     position: fixed; right: 16px; bottom: 16px; z-index: 2147483600;
+     width: min(360px, calc(100vw - 24px));
+     opacity: 0; transform: translateY(10px) scale(0.98);
+     pointer-events: none;
+     transition: opacity .18s ease, transform .18s ease;
+     font: 13px/1.4 "Segoe UI", system-ui, sans-serif;
+   }
+   #${TOAST_ID}.is-show {
+     opacity: 1; transform: translateY(0) scale(1); pointer-events: auto;
+   }
+   #${TOAST_ID} .ft-toast-card {
+     display: grid; grid-template-columns: 36px 1fr auto; gap: 10px; align-items: start;
+     padding: 12px 12px 12px 10px; border-radius: 12px;
+     background: #ffffff; border: 1px solid #e5e7eb;
+     box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16);
+   }
+   #${TOAST_ID}.ok .ft-toast-card { border-color: #bbf7d0; background: #f0fdf4; }
+   #${TOAST_ID}.warn .ft-toast-card { border-color: #fde68a; background: #fffbeb; }
+   #${TOAST_ID}.info .ft-toast-card { border-color: #bfdbfe; background: #eff6ff; }
+   #${TOAST_ID} .ft-toast-icon {
+     width: 36px; height: 36px; border-radius: 10px;
+     display: flex; align-items: center; justify-content: center;
+     font-size: 16px; font-weight: 700; color: #fff;
+     background: #2563eb;
+   }
+   #${TOAST_ID}.ok .ft-toast-icon { background: #16a34a; }
+   #${TOAST_ID}.warn .ft-toast-icon { background: #d97706; }
+   #${TOAST_ID} .ft-toast-title {
+     font-size: 13px; font-weight: 700; color: #111827; margin-bottom: 2px;
+   }
+   #${TOAST_ID} .ft-toast-msg {
+     font-size: 12px; color: #4b5563; line-height: 1.4;
+   }
+   #${TOAST_ID} .ft-toast-close {
+     border: 0; background: transparent; color: #9ca3af; cursor: pointer;
+     width: 24px; height: 24px; border-radius: 6px; font-size: 14px; line-height: 1;
+   }
+   #${TOAST_ID} .ft-toast-close:hover { background: rgba(15,23,42,.06); color: #374151; }
+   #${FORM_MODAL_ID} {
+     position: fixed; inset: 0; z-index: 12010; display: none;
+     align-items: center; justify-content: center;
+     background: rgba(15, 23, 42, 0.4); padding: 16px;
+   }
+   #${FORM_MODAL_ID}.open { display: flex; }
+   #${FORM_MODAL_ID} .ft-form-card {
+     width: min(440px, 100%); background: #fff; color: #1f2937;
+     border: 1px solid #e5e7eb; border-radius: 12px;
+     box-shadow: 0 18px 48px rgba(15, 23, 42, 0.22);
+     padding: 16px; display: grid; gap: 12px;
+     font: 13px/1.45 "Segoe UI", system-ui, sans-serif;
+     overflow: visible;
+   }
+   #${FORM_MODAL_ID} .ft-form-head {
+     display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
+   }
+   #${FORM_MODAL_ID} .ft-form-title { font-weight: 700; font-size: 16px; color: #111827; }
+   #${FORM_MODAL_ID} .ft-form-sub { font-size: 12px; color: #6b7280; margin-top: 2px; }
+   #${FORM_MODAL_ID} label { display: grid; gap: 4px; }
+   #${FORM_MODAL_ID} label > span { font-size: 12px; color: #6b7280; font-weight: 600; }
+   #${FORM_MODAL_ID} input, #${FORM_MODAL_ID} textarea {
+     width: 100%; border-radius: 8px; border: 1px solid #d1d5db;
+     background: #fff; color: #111827; padding: 9px 10px; font: inherit; box-sizing: border-box;
+   }
+   #${FORM_MODAL_ID} textarea { min-height: 110px; resize: vertical; }
+   #${FORM_MODAL_ID} input:focus, #${FORM_MODAL_ID} textarea:focus {
+     outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,.15);
+   }
+   #${FORM_MODAL_ID} .ft-tag-row { display: flex; gap: 8px; align-items: stretch; }
+   #${FORM_MODAL_ID} .ft-dd {
+     position: relative; flex: 1; min-width: 0;
+   }
+   #${FORM_MODAL_ID} .ft-dd-btn {
+     width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+     border: 1px solid #d1d5db; border-radius: 10px; background: #fff; color: #111827;
+     padding: 9px 12px; font: inherit; cursor: pointer; text-align: left;
+     transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+   }
+   #${FORM_MODAL_ID} .ft-dd-btn:hover { border-color: #93c5fd; background: #f8fbff; }
+   #${FORM_MODAL_ID} .ft-dd.open .ft-dd-btn,
+   #${FORM_MODAL_ID} .ft-dd-btn:focus-visible {
+     outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,.15);
+   }
+   #${FORM_MODAL_ID} .ft-dd-label {
+     flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+     font-weight: 600; color: #111827;
+   }
+   #${FORM_MODAL_ID} .ft-dd-caret {
+     width: 18px; height: 18px; flex: 0 0 auto; color: #64748b;
+     transition: transform .18s ease;
+   }
+   #${FORM_MODAL_ID} .ft-dd.open .ft-dd-caret { transform: rotate(180deg); color: #2563eb; }
+   #${FORM_MODAL_ID} .ft-dd-menu {
+     position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 5;
+     display: none; max-height: 220px; overflow: auto;
+     background: #fff; border: 1px solid #e2e8f0; border-radius: 12px;
+     box-shadow: 0 14px 34px rgba(15, 23, 42, 0.16), 0 2px 6px rgba(15, 23, 42, 0.06);
+     padding: 6px;
+   }
+   #${FORM_MODAL_ID} .ft-dd.open .ft-dd-menu { display: block; }
+   #${FORM_MODAL_ID} .ft-dd-item {
+     width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+     border: 0; background: transparent; color: #1f2937; text-align: left;
+     border-radius: 8px; padding: 9px 10px; font: inherit; cursor: pointer;
+   }
+   #${FORM_MODAL_ID} .ft-dd-item:hover { background: #f1f5f9; }
+   #${FORM_MODAL_ID} .ft-dd-item.is-active {
+     background: #eff6ff; color: #1d4ed8; font-weight: 650;
+   }
+   #${FORM_MODAL_ID} .ft-dd-item.is-active::after {
+     content: "✓"; font-size: 12px; color: #2563eb; font-weight: 700;
+   }
+   #${FORM_MODAL_ID} .ft-dd-empty {
+     padding: 10px; font-size: 12px; color: #94a3b8; text-align: center;
+   }
+   #${FORM_MODAL_ID} .ft-form-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+   #${FORM_MODAL_ID} .ft-form-actions button,
+   #${FORM_MODAL_ID} .ft-tag-row > button.secondary,
+   #${FORM_MODAL_ID} button.ghost-close,
+   #${FORM_MODAL_ID} button.primary,
+   #${FORM_MODAL_ID} button.secondary {
+     border: 0; border-radius: 8px; padding: 9px 12px; cursor: pointer; font: inherit;
+   }
+   #${FORM_MODAL_ID} button.primary { background: #2563eb; color: #fff; font-weight: 650; }
+   #${FORM_MODAL_ID} button.secondary {
+     background: #f3f4f6; color: #374151; border: 1px solid #e5e7eb;
+   }
+   #${FORM_MODAL_ID} .ft-tag-row > button.secondary {
+     flex: 0 0 auto; white-space: nowrap; align-self: stretch;
+   }
+   #${FORM_MODAL_ID} button.ghost-close {
+     background: transparent; color: #9ca3af; width: 28px; height: 28px; padding: 0;
+     border: 0;
+   }
+   #${FORM_MODAL_ID} button.ghost-close:hover { background: #f3f4f6; color: #374151; }
+   #${FORM_MODAL_ID} .ft-dd-menu::-webkit-scrollbar { width: 8px; }
+   #${FORM_MODAL_ID} .ft-dd-menu::-webkit-scrollbar-thumb {
+     background: #cbd5e1; border-radius: 8px; border: 2px solid #fff;
+   }
  `;
   document.documentElement.appendChild(style);
 
@@ -1414,7 +1650,7 @@
      </div>
    </div>
    <div class="ft-body">
-     <div class="ft-status ft-muted" data-el="status"></div>
+     <div class="ft-status ft-muted" data-el="status" hidden></div>
      <div class="ft-toolbar ft-actions">
        <button type="button" data-act="pick">Definir caixa</button>
        <button type="button" class="secondary" data-act="guess">Detectar</button>
@@ -1429,34 +1665,24 @@
        <span class="ft-meta-hint">Usar = cola · Enviar = confirma</span>
      </div>
      <div class="ft-list" data-el="list"></div>
+     <div class="ft-new-row">
+       <button type="button" data-act="open-new">+ Novo modelo</button>
+       <button type="button" class="secondary" data-act="export">Exportar</button>
+     </div>
      <details class="ft-add">
-       <summary>+ Novo modelo / importar</summary>
+       <summary>Mais opções</summary>
        <div class="ft-add-grid">
-         <label style="display:grid;gap:4px">
-           <span style="font-size:12px;color:#6b7280">Título</span>
-           <input data-el="title" placeholder="Ex.: Boas-vindas" maxlength="80" />
-         </label>
-         <label style="display:grid;gap:4px">
-           <span style="font-size:12px;color:#6b7280">Pasta / tag</span>
-           <div class="ft-tag-row">
-             <select data-el="tag"></select>
-             <button type="button" class="secondary" data-act="create-tag">+ Pasta</button>
-           </div>
-         </label>
          <div class="ft-actions">
+           <button type="button" class="secondary" data-act="create-tag">+ Pasta</button>
            <button type="button" class="secondary" data-act="rename-tag">Renomear pasta</button>
            <button type="button" class="secondary" data-act="delete-tag">Apagar pasta</button>
          </div>
-         <label style="display:grid;gap:4px">
-           <span style="font-size:12px;color:#6b7280">Texto</span>
-           <textarea data-el="body" rows="3" placeholder="Texto que será colado na caixa"></textarea>
-         </label>
          <div class="ft-actions">
-           <button type="button" data-act="add">Salvar</button>
-           <button type="button" class="secondary" data-act="export">Exportar</button>
-           <button type="button" class="secondary" data-act="import">Importar</button>
+           <button type="button" class="secondary" data-act="import">Importar arquivo</button>
+           <button type="button" class="secondary" data-act="import-paste">Colar JSON</button>
            <button type="button" class="secondary" data-act="reset-uses">Zerar usos</button>
          </div>
+         <div class="ft-import-hint">Dica: para criar mensagem, use “+ Novo modelo”. Importar aceita o .json do Exportar.</div>
        </div>
      </details>
    </div>
@@ -1568,6 +1794,7 @@
      <div class="ft-modal-text" data-el="modal-text"></div>
      <div class="ft-modal-preview" data-el="modal-preview" hidden></div>
      <input class="ft-modal-input" data-el="modal-input" hidden />
+     <textarea class="ft-modal-textarea" data-el="modal-textarea" hidden rows="8" placeholder="Cole o JSON aqui…"></textarea>
      <div class="ft-modal-actions">
        <button type="button" class="ft-cancel" data-el="modal-cancel">Cancelar</button>
        <button type="button" class="ft-confirm" data-el="modal-ok">Confirmar</button>
@@ -1576,15 +1803,83 @@
  `;
   document.body.appendChild(modal);
 
+  const toast = document.createElement("div");
+  toast.id = TOAST_ID;
+  toast.innerHTML = `
+    <div class="ft-toast-card" role="status" aria-live="polite">
+      <div class="ft-toast-icon" data-el="toast-icon">i</div>
+      <div>
+        <div class="ft-toast-title" data-el="toast-title">Aviso</div>
+        <div class="ft-toast-msg" data-el="toast-msg"></div>
+      </div>
+      <button type="button" class="ft-toast-close" data-el="toast-close" title="Fechar">✕</button>
+    </div>
+  `;
+  document.body.appendChild(toast);
+
+  const formModal = document.createElement("div");
+  formModal.id = FORM_MODAL_ID;
+  formModal.innerHTML = `
+    <div class="ft-form-card" role="dialog" aria-modal="true">
+      <div class="ft-form-head">
+        <div>
+          <div class="ft-form-title" data-el="form-heading">Novo modelo</div>
+          <div class="ft-form-sub">Preencha e salve para usar no chat</div>
+        </div>
+        <button type="button" class="ghost-close" data-act="close-form" title="Fechar">✕</button>
+      </div>
+      <label>
+        <span>Título</span>
+        <input data-el="title" placeholder="Ex.: Boas-vindas" maxlength="80" />
+      </label>
+      <label>
+        <span>Pasta</span>
+        <div class="ft-tag-row">
+          <div class="ft-dd" data-el="tag-dd">
+            <button type="button" class="ft-dd-btn" data-el="tag-btn" aria-haspopup="listbox" aria-expanded="false">
+              <span class="ft-dd-label" data-el="tag-label">Geral</span>
+              <svg class="ft-dd-caret" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+            <div class="ft-dd-menu" data-el="tag-menu" role="listbox" hidden></div>
+            <input type="hidden" data-el="tag" value="Geral" />
+          </div>
+          <button type="button" class="secondary" data-act="create-tag">+ Pasta</button>
+        </div>
+      </label>
+      <label>
+        <span>Mensagem</span>
+        <textarea data-el="body" placeholder="Texto que será colado na caixa do chat"></textarea>
+      </label>
+      <div class="ft-form-actions">
+        <button type="button" class="secondary" data-act="close-form">Cancelar</button>
+        <button type="button" class="primary" data-act="add">Salvar modelo</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(formModal);
+
   const $ = (sel) => panel.querySelector(sel);
   const statusEl = $('[data-el="status"]');
-  const titleEl = $('[data-el="title"]');
-  const tagEl = $('[data-el="tag"]');
-  const bodyEl = $('[data-el="body"]');
+  const titleEl = formModal.querySelector('[data-el="title"]');
+  const tagDd = formModal.querySelector('[data-el="tag-dd"]');
+  const tagBtn = formModal.querySelector('[data-el="tag-btn"]');
+  const tagLabel = formModal.querySelector('[data-el="tag-label"]');
+  const tagMenu = formModal.querySelector('[data-el="tag-menu"]');
+  const tagEl = formModal.querySelector('[data-el="tag"]');
+  const bodyEl = formModal.querySelector('[data-el="body"]');
+  const formHeadingEl = formModal.querySelector('[data-el="form-heading"]');
   const listEl = $('[data-el="list"]');
   const tagsEl = $('[data-el="tags"]');
   const searchEl = $('[data-el="search"]');
   const countEl = $('[data-el="count"]');
+  const toastTitleEl = toast.querySelector('[data-el="toast-title"]');
+  const toastMsgEl = toast.querySelector('[data-el="toast-msg"]');
+  const toastIconEl = toast.querySelector('[data-el="toast-icon"]');
+  const toastCloseEl = toast.querySelector('[data-el="toast-close"]');
+  let toastTimer = null;
+  let editingModelId = null;
   const aiTitleEl = aiCard.querySelector('[data-el="ai-title"]');
   const aiPreviewEl = aiCard.querySelector('[data-el="ai-preview"]');
   const aiTagEl = aiCard.querySelector('[data-el="ai-tag"]');
@@ -1595,6 +1890,7 @@
   const modalText = modal.querySelector('[data-el="modal-text"]');
   const modalPreview = modal.querySelector('[data-el="modal-preview"]');
   const modalInput = modal.querySelector('[data-el="modal-input"]');
+  const modalTextarea = modal.querySelector('[data-el="modal-textarea"]');
   const modalCancel = modal.querySelector('[data-el="modal-cancel"]');
   const modalOk = modal.querySelector('[data-el="modal-ok"]');
 
@@ -1605,6 +1901,7 @@
     okLabel = "Confirmar",
     danger = true,
     input = false,
+    textarea = false,
     inputValue = "",
     inputPlaceholder = "",
   } = {}) =>
@@ -1618,16 +1915,29 @@
         modalPreview.hidden = true;
         modalPreview.textContent = "";
       }
-      if (input) {
+      if (textarea) {
+        modalInput.hidden = true;
+        modalInput.value = "";
+        modalTextarea.hidden = false;
+        modalTextarea.value = inputValue;
+        modalTextarea.placeholder = inputPlaceholder || "Cole o JSON aqui…";
+      } else if (input) {
+        modalTextarea.hidden = true;
+        modalTextarea.value = "";
         modalInput.hidden = false;
         modalInput.value = inputValue;
         modalInput.placeholder = inputPlaceholder || "";
       } else {
         modalInput.hidden = true;
         modalInput.value = "";
+        modalTextarea.hidden = true;
+        modalTextarea.value = "";
       }
       modalOk.textContent = okLabel;
-      modalOk.style.background = danger ? "#dc2626" : input ? "#2563eb" : "#059669";
+      modalOk.style.background = danger ? "#dc2626" : input || textarea ? "#2563eb" : "#059669";
+      const strayReplace = modal.querySelector("[data-el='modal-replace']");
+      if (strayReplace) strayReplace.hidden = true;
+      modalCancel.textContent = "Cancelar";
       modal.classList.add("open");
 
       const finish = (value) => {
@@ -1638,9 +1948,13 @@
         window.removeEventListener("keydown", onKey, true);
         resolve(value);
       };
-      const onOk = () =>
-        finish(input ? { ok: true, value: modalInput.value.trim() } : true);
-      const onCancel = () => finish(input ? { ok: false, value: "" } : false);
+      const onOk = () => {
+        if (textarea) finish({ ok: true, value: modalTextarea.value.trim() });
+        else if (input) finish({ ok: true, value: modalInput.value.trim() });
+        else finish(true);
+      };
+      const onCancel = () =>
+        finish(input || textarea ? { ok: false, value: "" } : false);
       const onBackdrop = (e) => {
         if (e.target === modal) onCancel();
       };
@@ -1648,7 +1962,7 @@
         if (e.key === "Escape") {
           e.preventDefault();
           onCancel();
-        } else if (e.key === "Enter") {
+        } else if (e.key === "Enter" && !textarea) {
           e.preventDefault();
           onOk();
         }
@@ -1657,7 +1971,9 @@
       modalCancel.addEventListener("click", onCancel);
       modal.addEventListener("click", onBackdrop);
       window.addEventListener("keydown", onKey, true);
-      if (input) {
+      if (textarea) {
+        modalTextarea.focus();
+      } else if (input) {
         modalInput.focus();
         modalInput.select();
       } else {
@@ -1665,34 +1981,619 @@
       }
     });
 
-  const fillTagSelect = (selected) => {
+  const askImportMode = (count) =>
+    new Promise((resolve) => {
+      modalTitle.textContent = "Importar modelos";
+      modalText.textContent =
+        `Encontrei ${count} modelo(s) no arquivo. Escolha como aplicar:`;
+      modalPreview.hidden = true;
+      modalPreview.textContent = "";
+      modalInput.hidden = true;
+      modalInput.value = "";
+      modalOk.textContent = "Mesclar";
+      modalOk.style.background = "#059669";
+      modalCancel.textContent = "Cancelar";
+
+      let replaceBtn = modal.querySelector("[data-el='modal-replace']");
+      if (!replaceBtn) {
+        replaceBtn = document.createElement("button");
+        replaceBtn.type = "button";
+        replaceBtn.setAttribute("data-el", "modal-replace");
+        replaceBtn.textContent = "Substituir tudo";
+        replaceBtn.style.background = "#dc2626";
+        replaceBtn.style.color = "#fff";
+        replaceBtn.style.border = "0";
+        replaceBtn.style.borderRadius = "6px";
+        replaceBtn.style.padding = "8px 12px";
+        replaceBtn.style.cursor = "pointer";
+        replaceBtn.style.font = "inherit";
+        modalCancel.parentNode.insertBefore(replaceBtn, modalOk);
+      }
+      replaceBtn.hidden = false;
+
+      modal.classList.add("open");
+      const finish = (value) => {
+        modal.classList.remove("open");
+        replaceBtn.hidden = true;
+        modalCancel.textContent = "Cancelar";
+        modalOk.removeEventListener("click", onMerge);
+        replaceBtn.removeEventListener("click", onReplace);
+        modalCancel.removeEventListener("click", onCancel);
+        modal.removeEventListener("click", onBackdrop);
+        window.removeEventListener("keydown", onKey, true);
+        resolve(value);
+      };
+      const onMerge = () => finish("merge");
+      const onReplace = () => finish("replace");
+      const onCancel = () => finish(null);
+      const onBackdrop = (e) => {
+        if (e.target === modal) onCancel();
+      };
+      const onKey = (e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onCancel();
+        }
+      };
+      modalOk.addEventListener("click", onMerge);
+      replaceBtn.addEventListener("click", onReplace);
+      modalCancel.addEventListener("click", onCancel);
+      modal.addEventListener("click", onBackdrop);
+      window.addEventListener("keydown", onKey, true);
+      modalOk.focus();
+    });
+
+  const normalizeImportedTemplates = (parsed) => {
+    let list = parsed;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      if (Array.isArray(parsed.templates)) list = parsed.templates;
+      else if (Array.isArray(parsed.items)) list = parsed.items;
+      else if (Array.isArray(parsed.modelos)) list = parsed.modelos;
+      else if (Array.isArray(parsed.data)) list = parsed.data;
+    }
+    if (!Array.isArray(list)) throw new Error("JSON inválido: esperado array de modelos");
+
+    const out = [];
+    const seen = new Set();
+    for (let i = 0; i < list.length; i++) {
+      const raw = list[i];
+      if (!raw || typeof raw !== "object") continue;
+      const body = String(raw.body || raw.text || raw.mensagem || raw.message || "")
+        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
+        .trim();
+      if (!body) continue;
+      const title = String(raw.title || raw.nome || raw.name || body.slice(0, 40))
+        .replace(/[\u0000-\u001F]/g, "")
+        .trim();
+      const tag = String(raw.tag || raw.pasta || raw.folder || DEFAULT_TAG)
+        .replace(/[\u0000-\u001F]/g, "")
+        .trim() || DEFAULT_TAG;
+      let id = String(raw.id || "").trim() || uid();
+      if (seen.has(id)) id = uid();
+      seen.add(id);
+      out.push({
+        id,
+        title: title.slice(0, 120),
+        body,
+        tag,
+        createdAt: Number(raw.createdAt) || Date.now(),
+        uses: Number(raw.uses) || 0,
+        lastUsedAt: Number(raw.lastUsedAt) || 0,
+      });
+    }
+    if (!out.length) throw new Error("Nenhum modelo válido encontrado no JSON");
+    return out;
+  };
+
+  const applyImportedTemplates = async (incoming) => {
+    const mode = await askImportMode(incoming.length);
+    if (!mode) {
+      setStatus("Importação cancelada.", "warn");
+      return;
+    }
+    const current = load();
+    let next = [];
+    if (mode === "replace") {
+      next = incoming;
+    } else {
+      const byId = new Map(current.map((x) => [x.id, x]));
+      const byBody = new Map(
+        current.map((x) => [`${normalize(x.tag)}::${normalize(x.body)}`, x])
+      );
+      next = current.slice();
+      let added = 0;
+      let updated = 0;
+      for (const item of incoming) {
+        const bodyKey = `${normalize(item.tag)}::${normalize(item.body)}`;
+        if (byId.has(item.id)) {
+          const idx = next.findIndex((x) => x.id === item.id);
+          if (idx >= 0) {
+            next[idx] = { ...next[idx], ...item, uses: next[idx].uses || 0 };
+            updated++;
+          }
+        } else if (byBody.has(bodyKey)) {
+          // já existe o mesmo texto na mesma pasta — ignora duplicata
+        } else {
+          next.unshift(item);
+          byId.set(item.id, item);
+          byBody.set(bodyKey, item);
+          added++;
+        }
+      }
+      setStatus(
+        `Mesclado: +${added} novo(s)${updated ? `, ${updated} atualizado(s)` : ""}. Total: ${next.length}.`,
+        "ok"
+      );
+      save(next);
+      const tags = loadTags();
+      incoming.forEach((it) => {
+        if (it.tag && !tags.some((t) => normalize(t) === normalize(it.tag))) tags.push(it.tag);
+      });
+      saveTags(tags);
+      fillTagSelect(activeTag === "Todos" ? DEFAULT_TAG : activeTag);
+      render();
+      return;
+    }
+
+    save(next);
     const tags = loadTags();
-    const current = selected || tagEl.value || DEFAULT_TAG;
-    tagEl.innerHTML = tags
-      .map(
-        (t) =>
-          `<option value="${escapeHtml(t)}"${
-            normalize(t) === normalize(current) ? " selected" : ""
-          }>${escapeHtml(t)}</option>`
-      )
-      .join("");
-    if (![...tagEl.options].some((o) => o.value === current)) {
-      tagEl.value = DEFAULT_TAG;
+    incoming.forEach((it) => {
+      if (it.tag && !tags.some((t) => normalize(t) === normalize(it.tag))) tags.push(it.tag);
+    });
+    saveTags(tags);
+    fillTagSelect(DEFAULT_TAG);
+    activeTag = "Todos";
+    render();
+    setStatus(`Substituído: ${next.length} modelo(s) importado(s).`, "ok");
+  };
+
+  const importTemplatesFromRaw = async (raw) => {
+    const text = String(raw || "").trim();
+    if (!text) {
+      setStatus("Nada para importar.", "warn");
+      return;
+    }
+    try {
+      const parsed = parseImportJson(text);
+      const incoming = normalizeImportedTemplates(parsed);
+      await applyImportedTemplates(incoming);
+    } catch (err) {
+      const msg = formatJsonImportError(err, text);
+      setStatus(msg, "warn");
+      console.warn("[Five9 Modelos] import JSON:", err);
     }
   };
 
-  const setStatus = (msg, kind = "") => {
-    statusEl.className = `ft-status ${kind}`.trim();
-    statusEl.textContent = msg;
-    if (!msg) {
-      statusEl.classList.add("ft-muted");
+  const sanitizeImportText = (input) => {
+    let t = String(input || "").replace(/^\uFEFF/, "");
+    // aspas “curvas” do Word/WhatsApp
+    t = t
+      .replace(/[\u201C\u201D\u00AB\u00BB]/g, '"')
+      .replace(/[\u2018\u2019]/g, "'");
+    // vírgula sobrando antes de } ou ]
+    t = t.replace(/,\s*([}\]])/g, "$1");
+    return t.trim();
+  };
+
+  // Corrige controles reais dentro de strings JSON (\n, \t, BEL, etc.)
+  const escapeControlsInsideJsonStrings = (src) => {
+    let out = "";
+    let inString = false;
+    let escaped = false;
+    for (let i = 0; i < src.length; i++) {
+      const c = src[i];
+      const code = c.charCodeAt(0);
+      if (inString) {
+        if (escaped) {
+          out += c;
+          escaped = false;
+          continue;
+        }
+        if (c === "\\") {
+          out += c;
+          escaped = true;
+          continue;
+        }
+        if (c === '"') {
+          inString = false;
+          out += c;
+          continue;
+        }
+        // Qualquer controle U+0000–U+001F precisa ser escapado
+        if (code < 0x20) {
+          if (c === "\n") out += "\\n";
+          else if (c === "\r") out += "\\r";
+          else if (c === "\t") out += "\\t";
+          else {
+            const hex = code.toString(16).padStart(4, "0");
+            out += "\\u" + hex;
+          }
+          continue;
+        }
+        // surrogates isolados / separadores problemáticos
+        if (code === 0x2028 || code === 0x2029) {
+          out += c === "\u2028" ? "\\u2028" : "\\u2029";
+          continue;
+        }
+        out += c;
+      } else {
+        if (c === '"') inString = true;
+        out += c;
+      }
+    }
+    return out;
+  };
+
+  const parseImportJson = (raw) => {
+    const cleaned = sanitizeImportText(raw);
+    const attempts = [cleaned, escapeControlsInsideJsonStrings(cleaned)];
+    let lastErr = null;
+    for (let i = 0; i < attempts.length; i++) {
+      try {
+        return JSON.parse(attempts[i]);
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    throw lastErr || new Error("JSON inválido");
+  };
+
+  const formatJsonImportError = (err, raw) => {
+    const msg = String((err && err.message) || err || "JSON inválido");
+    const m = /position\s+(\d+)/i.exec(msg) || /at position\s+(\d+)/i.exec(msg);
+    let hint = "";
+    if (m) {
+      const pos = Number(m[1]) || 0;
+      const start = Math.max(0, pos - 40);
+      const end = Math.min(String(raw || "").length, pos + 40);
+      const snip = String(raw || "")
+        .slice(start, end)
+        .replace(/\s+/g, " ");
+      hint = snip ? ` Trecho: …${snip}…` : "";
+    }
+    if (/unterminated string/i.test(msg) || /bad control character/i.test(msg)) {
+      return (
+        "JSON com caractere inválido no texto de um modelo (aspas/emoji/quebra de linha)." +
+        hint +
+        ' Atualize o script e tente de novo, ou use "Importar arquivo".'
+      );
+    }
+    return `Falha ao importar: ${msg}.${hint} Se persistir, use Importar arquivo.`;
+  };
+
+  const importTemplatesFromFile = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "application/json,.json,text/plain,.txt";
+    input.style.display = "none";
+    document.body.appendChild(input);
+    input.addEventListener("change", async () => {
+      const file = input.files && input.files[0];
+      input.remove();
+      if (!file) return;
+      try {
+        const text = await file.text();
+        await importTemplatesFromRaw(text);
+      } catch (err) {
+        setStatus("Não consegui ler o arquivo.", "warn");
+      }
+    });
+    input.click();
+  };
+
+  const setTagDropdownOpen = (open) => {
+    if (!tagDd || !tagBtn || !tagMenu) return;
+    tagDd.classList.toggle("open", !!open);
+    tagBtn.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) tagMenu.removeAttribute("hidden");
+    else tagMenu.setAttribute("hidden", "");
+  };
+
+  const closeTagDropdown = () => setTagDropdownOpen(false);
+
+  const fillTagSelect = (selected) => {
+    const tags = loadTags();
+    let current = String(selected || tagEl.value || DEFAULT_TAG).trim() || DEFAULT_TAG;
+    if (!tags.some((t) => normalize(t) === normalize(current))) {
+      current = tags.includes(DEFAULT_TAG) ? DEFAULT_TAG : tags[0] || DEFAULT_TAG;
+    }
+    const exact = tags.find((t) => normalize(t) === normalize(current)) || current;
+    tagEl.value = exact;
+    if (tagLabel) tagLabel.textContent = exact;
+    if (!tagMenu) return;
+    if (!tags.length) {
+      tagMenu.innerHTML = `<div class="ft-dd-empty">Nenhuma pasta ainda</div>`;
       return;
     }
-    if (docked && kind === "ok" && /acoplado|detectada/i.test(msg)) {
-      statusEl.classList.add("ft-muted");
-    } else {
-      statusEl.classList.remove("ft-muted");
+    tagMenu.innerHTML = tags
+      .map((t) => {
+        const active = normalize(t) === normalize(exact);
+        return `<button type="button" class="ft-dd-item${
+          active ? " is-active" : ""
+        }" role="option" data-tag-value="${escapeHtml(t)}" aria-selected="${
+          active ? "true" : "false"
+        }">${escapeHtml(t)}</button>`;
+      })
+      .join("");
+  };
+
+  if (tagBtn) {
+    tagBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setTagDropdownOpen(!tagDd.classList.contains("open"));
+    });
+  }
+  if (tagMenu) {
+    tagMenu.addEventListener("click", (e) => {
+      const item = e.target.closest(".ft-dd-item");
+      if (!item || !tagMenu.contains(item)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const value = item.getAttribute("data-tag-value") || item.textContent || DEFAULT_TAG;
+      fillTagSelect(value);
+      closeTagDropdown();
+    });
+  }
+  document.addEventListener(
+    "click",
+    (e) => {
+      if (!tagDd || !tagDd.classList.contains("open")) return;
+      if (tagDd.contains(e.target)) return;
+      closeTagDropdown();
+    },
+    true
+  );
+  document.addEventListener(
+    "keydown",
+    (e) => {
+      if (e.key === "Escape" && tagDd && tagDd.classList.contains("open")) {
+        e.stopPropagation();
+        closeTagDropdown();
+      }
+    },
+    true
+  );
+
+  const hideToast = () => {
+    toast.classList.remove("is-show", "ok", "warn", "info");
+    if (toastTimer) {
+      clearTimeout(toastTimer);
+      toastTimer = null;
     }
+  };
+
+  const friendlyNotify = (msg, kind = "") => {
+    const raw = String(msg || "").trim();
+    if (!raw) return null;
+    const rules = [
+      {
+        re: /TextDetailsNote|Sem TextDetailsNote|Flutuante \(TextDetailsNote/i,
+        title: "Painel flutuante",
+        message: "Não encontramos o ponto de encaixe automático. Se a mensagem não colar, clique em Definir caixa.",
+        kind: "warn",
+      },
+      {
+        re: /Flutuante\. Sem/i,
+        title: "Quase pronto",
+        message: "O painel está flutuando. Clique em Definir caixa se precisar escolher onde colar as mensagens.",
+        kind: "info",
+      },
+      {
+        re: /Clique na caixa de mensagem/i,
+        title: "Escolha a caixa",
+        message: "Clique uma vez na caixa de mensagem do chat para eu saber onde colar.",
+        kind: "info",
+      },
+      {
+        re: /Caixa definida/i,
+        title: "Caixa definida",
+        message: "Pronto! Os modelos vão colar nesse campo.",
+        kind: "ok",
+      },
+      {
+        re: /Detectada:/i,
+        title: "Caixa detectada",
+        message: "Encontrei a caixa de mensagem automaticamente.",
+        kind: "ok",
+      },
+      {
+        re: /Não detectei/i,
+        title: "Não encontrei a caixa",
+        message: "Clique em Definir caixa e selecione o campo de mensagem do chat.",
+        kind: "warn",
+      },
+      {
+        re: /sumiu\. Painel flutuando|TextDetailsNote sumiu/i,
+        title: "Painel solto",
+        message: "O encaixe sumiu. O painel voltou a flutuar — pode continuar usando normalmente.",
+        kind: "warn",
+      },
+      {
+        re: /Painel flutuante\. Clique em Acoplar/i,
+        title: "Modo flutuante",
+        message: "O painel está solto na tela. Clique em Acoplar para tentar fixar de novo.",
+        kind: "ok",
+      },
+      {
+        re: /Não achei data-f9-template|Continuando flutuante/i,
+        title: "Sem encaixe automático",
+        message: "Não achei onde acoplar o painel. Ele continua flutuante e funcional.",
+        kind: "warn",
+      },
+      {
+        re: /Modelo salvo/i,
+        title: "Modelo salvo",
+        message: "Sua mensagem foi adicionada à lista.",
+        kind: "ok",
+      },
+      {
+        re: /Carregado para edição/i,
+        title: "Editando modelo",
+        message: "Ajuste o texto e clique em Salvar modelo.",
+        kind: "info",
+      },
+      {
+        re: /Modelo apagado/i,
+        title: "Modelo apagado",
+        message: "O item foi removido da lista.",
+        kind: "ok",
+      },
+      {
+        re: /Exportado/i,
+        title: "Exportado",
+        message: "Arquivo JSON baixado com seus modelos.",
+        kind: "ok",
+      },
+      {
+        re: /Digite o texto do modelo/i,
+        title: "Falta a mensagem",
+        message: "Escreva o texto que será colado no chat.",
+        kind: "warn",
+      },
+      {
+        re: /Defina a caixa antes/i,
+        title: "Defina a caixa",
+        message: "Antes de colar, clique em Definir caixa e escolha o campo do chat.",
+        kind: "warn",
+      },
+      {
+        re: /Verificando atualização/i,
+        title: "Buscando atualização",
+        message: "Consultando o GitHub…",
+        kind: "info",
+      },
+      {
+        re: /JSON com caractere inválido|Falha ao importar|Bad control|Unterminated/i,
+        title: "Importação falhou",
+        message: raw.replace(/^Falha ao importar:\s*/i, "").slice(0, 180),
+        kind: "warn",
+      },
+      {
+        re: /Mesclado:|Substituído:/i,
+        title: "Importação concluída",
+        message: raw,
+        kind: "ok",
+      },
+      {
+        re: /Pasta criada|Pasta renomeada|Pasta apagada/i,
+        title: "Pastas",
+        message: raw,
+        kind: "ok",
+      },
+      {
+        re: /Contadores zerados/i,
+        title: "Contadores zerados",
+        message: "Os usos dos modelos voltaram a zero.",
+        kind: "ok",
+      },
+      {
+        re: /Envio cancelado/i,
+        title: "Envio cancelado",
+        message: "Nada foi enviado.",
+        kind: "warn",
+      },
+      {
+        re: /Nenhuma sugestão/i,
+        title: "Sem sugestão",
+        message: "Não há modelo sugerido no momento.",
+        kind: "warn",
+      },
+    ];
+    for (const rule of rules) {
+      if (rule.re.test(raw)) {
+        return {
+          title: rule.title,
+          message: rule.message,
+          kind: rule.kind || kind || "info",
+        };
+      }
+    }
+    if (kind === "ok") return { title: "Pronto", message: raw, kind: "ok" };
+    if (kind === "warn") return { title: "Atenção", message: raw, kind: "warn" };
+    return { title: "Aviso", message: raw, kind: "info" };
+  };
+
+  const setStatus = (msg, kind = "") => {
+    // mantém status oculto só por compatibilidade
+    if (statusEl) {
+      statusEl.textContent = msg || "";
+      statusEl.className = `ft-status ${kind}`.trim();
+    }
+    if (!msg) {
+      hideToast();
+      return;
+    }
+    // avisos técnicos de boot/dock silenciados se forem “ok” triviais em docked
+    if (docked && kind === "ok" && /acoplado|detectada/i.test(msg)) {
+      hideToast();
+      return;
+    }
+    const info = friendlyNotify(msg, kind) || {
+      title: "Aviso",
+      message: String(msg),
+      kind: kind || "info",
+    };
+    const k = info.kind || kind || "info";
+    toast.classList.remove("ok", "warn", "info");
+    toast.classList.add(k === "ok" ? "ok" : k === "warn" ? "warn" : "info");
+    toastIconEl.textContent = k === "ok" ? "✓" : k === "warn" ? "!" : "i";
+    toastTitleEl.textContent = info.title;
+    toastMsgEl.textContent = info.message;
+    toast.classList.add("is-show");
+    if (toastTimer) clearTimeout(toastTimer);
+    const ms = k === "warn" ? 7000 : 4500;
+    toastTimer = setTimeout(hideToast, ms);
+  };
+
+  const openModelForm = ({ editItem = null } = {}) => {
+    editingModelId = editItem && editItem.id ? editItem.id : null;
+    formHeadingEl.textContent = editingModelId ? "Editar modelo" : "Novo modelo";
+    fillTagSelect((editItem && itemTag(editItem)) || activeTag === "Todos" ? DEFAULT_TAG : activeTag || DEFAULT_TAG);
+    titleEl.value = (editItem && editItem.title) || "";
+    bodyEl.value = (editItem && editItem.body) || "";
+    formModal.classList.add("open");
+    panel.classList.add("ft-under-modal");
+    aiCard.classList.add("ft-under-modal");
+    setTimeout(() => {
+      (titleEl.value ? bodyEl : titleEl).focus();
+    }, 30);
+  };
+
+  const closeModelForm = () => {
+    closeTagDropdown();
+    formModal.classList.remove("open");
+    panel.classList.remove("ft-under-modal");
+    aiCard.classList.remove("ft-under-modal");
+    editingModelId = null;
+    titleEl.value = "";
+    bodyEl.value = "";
+  };
+
+  const saveModelFromForm = () => {
+    const body = bodyEl.value.trim();
+    if (!body) {
+      setStatus("Digite o texto do modelo.", "warn");
+      return false;
+    }
+    const tag = ensureTag(tagEl.value || DEFAULT_TAG) || DEFAULT_TAG;
+    const items = load().filter((x) => !editingModelId || x.id !== editingModelId);
+    items.unshift({
+      id: editingModelId || uid(),
+      title: titleEl.value.trim() || body.slice(0, 40),
+      body,
+      tag,
+      createdAt: Date.now(),
+      uses: 0,
+      lastUsedAt: 0,
+    });
+    save(items);
+    fillTagSelect(tag);
+    closeModelForm();
+    render();
+    setStatus("Modelo salvo.", "ok");
+    searchEl.focus();
+    return true;
   };
 
   const markTarget = (el) => {
@@ -2573,7 +3474,8 @@
     }
 
     if (act === "rename-tag") {
-      const current = tagEl.value || activeTag;
+      const current =
+        activeTag && activeTag !== "Todos" ? activeTag : tagEl.value || activeTag;
       if (!current || current === "Todos" || current === DEFAULT_TAG) {
         setStatus(
           `A pasta "${DEFAULT_TAG}" não pode ser renomeada. Selecione outra.`,
@@ -2610,7 +3512,8 @@
     }
 
     if (act === "delete-tag") {
-      const current = tagEl.value;
+      const current =
+        activeTag && activeTag !== "Todos" ? activeTag : tagEl.value;
       if (!current || current === DEFAULT_TAG) {
         setStatus(`A pasta "${DEFAULT_TAG}" não pode ser apagada.`, "warn");
         return;
@@ -2680,30 +3583,18 @@
       return;
     }
 
+    if (act === "open-new") {
+      openModelForm();
+      return;
+    }
+
+    if (act === "close-form") {
+      closeModelForm();
+      return;
+    }
+
     if (act === "add") {
-      const body = bodyEl.value.trim();
-      if (!body) {
-        setStatus("Digite o texto do modelo.", "warn");
-        return;
-      }
-      const tag = ensureTag(tagEl.value || DEFAULT_TAG) || DEFAULT_TAG;
-      const items = load();
-      items.unshift({
-        id: uid(),
-        title: titleEl.value.trim() || body.slice(0, 40),
-        body,
-        tag,
-        createdAt: Date.now(),
-        uses: 0,
-        lastUsedAt: 0,
-      });
-      save(items);
-      titleEl.value = "";
-      bodyEl.value = "";
-      fillTagSelect(DEFAULT_TAG);
-      render();
-      setStatus("Modelo salvo.", "ok");
-      searchEl.focus();
+      saveModelFromForm();
       return;
     }
 
@@ -2721,17 +3612,23 @@
     }
 
     if (act === "import") {
-      const raw = prompt("Cole o JSON exportado dos modelos:");
-      if (!raw) return;
-      try {
-        const parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed)) throw new Error("JSON inválido");
-        save(parsed);
-        render();
-        setStatus("Importado.", "ok");
-      } catch {
-        setStatus("Falha ao importar JSON.", "warn");
-      }
+      importTemplatesFromFile();
+      return;
+    }
+
+    if (act === "import-paste") {
+      const res = await askConfirm({
+        title: "Colar JSON",
+        text:
+          "Cole o JSON exportado. Se der erro de aspas, use “Importar arquivo” com o .json baixado em Exportar.",
+        okLabel: "Importar",
+        danger: false,
+        textarea: true,
+        inputValue: "",
+        inputPlaceholder: '[{"title":"...","body":"...","tag":"Geral"}]',
+      });
+      if (!res || !res.ok) return;
+      await importTemplatesFromRaw(res.value);
       return;
     }
 
@@ -2772,13 +3669,8 @@
     if (btn.dataset.edit) {
       const item = load().find((x) => x.id === btn.dataset.edit);
       if (!item) return;
-      titleEl.value = item.title || "";
-      bodyEl.value = item.body || "";
       ensureTag(itemTag(item));
-      fillTagSelect(itemTag(item));
-      save(load().filter((x) => x.id !== item.id));
-      panel.querySelector("details.ft-add").open = true;
-      render();
+      openModelForm({ editItem: item });
       setStatus("Carregado para edição. Salve de novo.", "warn");
       return;
     }
@@ -2862,6 +3754,579 @@
     });
   })();
 
+  /* ========== Download rápido de mídia (imagem/vídeo) no chat ========== */
+  const IMG_DL_ICON = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v12m0 0l4-4m-4 4l-4-4M5 19h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const IMAGE_EXT_RE =
+    /\.(jpe?g|png|gif|webp|bmp|svg|avif|heic|heif|jfif|tif{1,2})(?:$|[?#])/i;
+  const VIDEO_EXT_RE = /\.(mp4|webm|mov|m4v|mkv|avi)(?:$|[?#])/i;
+  const AUDIO_EXT_RE = /\.(mp3|wav|ogg|opus|m4a|aac|amr|oga|weba|flac)(?:$|[?#])/i;
+  const MEDIA_EXT_RE =
+    /\.(jpe?g|png|gif|webp|bmp|svg|avif|heic|heif|jfif|tif{1,2}|mp4|webm|mov|m4v|mkv|avi)(?:$|[?#])/i;
+  const MEDIA_URL_IN_TEXT_RE =
+    /https?:\/\/[^\s<>"']+\.(?:jpe?g|png|gif|webp|bmp|svg|avif|heic|heif|jfif|tiff?|mp4|webm|mov|m4v|mkv|avi)(?:\?[^\s<>"']*)?/gi;
+  const NOT_MEDIA_HOST_RE =
+    /(maps\.google|google\.com\/maps|youtube\.com|youtu\.be|vimeo\.com|facebook\.com\/(?:watch|reel)|instagram\.com\/(?:p|reel)|tiktok\.com|linkedin\.com|wa\.me|api\.whatsapp\.com|tel:|mailto:)/i;
+  const ANEXOS_RE = /\/anexos\//i;
+  // Lista/fila/card de interação — NÃO usar só "sidebar" (pega o chat inteiro no Five9)
+  const SIDEBAR_RE =
+    /(conversation-list|chat-list|session-list|interaction-list|contact-list|preview-list|workitem-list|engagement-list|inbox-list|queue-list|work-?items?|interactions?-?(?:list|item|row|card)?|engagements?-?(?:list|item)?|queue-?(?:list|item|row)?|session-?(?:list|item)?|my-interactions|active-interactions|left-rail|left-panel|side-panel|nav-list|item-list|list-item|context-header|customer-card|contact-card|interaction-card|workitem-card)/i;
+  const PREVIEW_CARD_TEXT_RE =
+    /\b(nenhum assunto|sem assunto|no subject|agora|há \d+\s*min|min atrás|NF\s*#?\d+)\b/i;
+  const CHANNEL_BADGE_RE = /\b(wa|whatsapp|sms|voice|email|chat)\b/i;
+
+  let imgDlObserver = null;
+  let imgDlScanTimer = null;
+  const imgDlProbeCache = new Map();
+
+  const mediaKindFromUrl = (url) => {
+    if (VIDEO_EXT_RE.test(url)) return "video";
+    if (IMAGE_EXT_RE.test(url)) return "image";
+    return "file";
+  };
+
+  const isOurUi = (el) =>
+    !!(
+      el &&
+      (el.closest("#" + PANEL_ID) ||
+        el.closest("#" + AI_CARD_ID) ||
+        el.closest("#" + UPDATE_FLOAT_ID) ||
+        el.closest("#" + TOAST_ID) ||
+        el.closest("#" + FORM_MODAL_ID) ||
+        el.closest("#" + PANEL_ID + "-modal"))
+    );
+
+  const shortText = (el) =>
+    String(el?.innerText || el?.textContent || "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  // Card de interação/motorista na lista (ex.: Hugo Risso · Agora · wa · NF …)
+  const isInteractionPreviewCard = (el) => {
+    if (!el) return true;
+    let node = el;
+    for (let i = 0; i < 12 && node && node !== document.body; i++) {
+      const cls = String(node.className || "");
+      const id = String(node.id || "");
+      const aria = String(node.getAttribute?.("aria-label") || "");
+      const role = String(node.getAttribute?.("role") || "");
+      if (SIDEBAR_RE.test(`${cls} ${id} ${aria} ${role}`)) return true;
+
+      let rect = null;
+      try {
+        rect = node.getBoundingClientRect();
+      } catch (_) {}
+      const text = shortText(node);
+      if (rect && text && text.length >= 8 && text.length <= 320) {
+        const compact =
+          rect.height > 36 && rect.height < 170 && rect.width > 140 && rect.width < 560;
+        const looksPreview =
+          PREVIEW_CARD_TEXT_RE.test(text) &&
+          (CHANNEL_BADGE_RE.test(text) || /\bNF\s*#?\d+/i.test(text));
+        // Card de lista/interação (motorista) — nunca botão de download aqui
+        if (compact && looksPreview) return true;
+        if (
+          compact &&
+          rect.left < 96 &&
+          rect.right < 560 &&
+          PREVIEW_CARD_TEXT_RE.test(text)
+        ) {
+          return true;
+        }
+      }
+      node = node.parentElement;
+    }
+    return false;
+  };
+
+  const isClearlySidebar = (el) => {
+    if (!el) return true;
+    if (isInteractionPreviewCard(el)) return true;
+    try {
+      const r = el.getBoundingClientRect();
+      if (r.left < 48 && r.right < 420 && r.height > 0 && r.height < 110 && r.width < 420) {
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  };
+
+  const isAllowedChatTarget = (el) => {
+    if (!el || !el.isConnected) return false;
+    if (isOurUi(el)) return false;
+    return !isClearlySidebar(el);
+  };
+
+  const looksLikeMediaUrl = (rawUrl) => {
+    const url = String(rawUrl || "").trim();
+    if (!url || !/^https?:\/\//i.test(url)) return false;
+    if (/^(javascript|data|blob):/i.test(url)) return false;
+    if (NOT_MEDIA_HOST_RE.test(url)) return false;
+    if (AUDIO_EXT_RE.test(url)) return false;
+    return MEDIA_EXT_RE.test(url);
+  };
+
+  const maybeMediaUrl = (rawUrl) => {
+    const url = String(rawUrl || "").trim();
+    if (!url || !/^https?:\/\//i.test(url)) return false;
+    if (NOT_MEDIA_HOST_RE.test(url)) return false;
+    if (AUDIO_EXT_RE.test(url)) return false;
+    if (looksLikeMediaUrl(url)) return true;
+    if (ANEXOS_RE.test(url) && /\/[a-f0-9-]{8,}[^/]*$/i.test(url.split("?")[0])) return true;
+    return false;
+  };
+
+  const filenameFromUrl = (url, contentType) => {
+    let base = mediaKindFromUrl(url) === "video" ? "video" : "arquivo";
+    try {
+      const u = new URL(url);
+      const last = decodeURIComponent(u.pathname.split("/").filter(Boolean).pop() || "");
+      if (last && /\.[a-z0-9]{2,5}$/i.test(last)) base = last.replace(/[^\w.\-()+]+/g, "_");
+      else if (last) base = last.replace(/[^\w.\-()+]+/g, "_").slice(0, 40) || base;
+    } catch (_) {}
+    if (!/\.[a-z0-9]{2,5}$/i.test(base)) {
+      const mime = String(contentType || "").toLowerCase();
+      const map = {
+        "image/jpeg": ".jpg",
+        "image/jpg": ".jpg",
+        "image/png": ".png",
+        "image/gif": ".gif",
+        "image/webp": ".webp",
+        "image/bmp": ".bmp",
+        "image/svg+xml": ".svg",
+        "image/avif": ".avif",
+        "image/heic": ".heic",
+        "image/heif": ".heif",
+        "image/tiff": ".tiff",
+        "video/mp4": ".mp4",
+        "video/webm": ".webm",
+        "video/quicktime": ".mov",
+      };
+      let ext = mediaKindFromUrl(url) === "video" ? ".mp4" : ".jpg";
+      Object.keys(map).some((k) => {
+        if (mime.indexOf(k) === 0) {
+          ext = map[k];
+          return true;
+        }
+        return false;
+      });
+      base += ext;
+    }
+    return base;
+  };
+
+  const triggerBlobDownload = (blob, filename) => {
+    const a = document.createElement("a");
+    const objUrl = URL.createObjectURL(blob);
+    a.href = objUrl;
+    a.download = filename || "arquivo.bin";
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      URL.revokeObjectURL(objUrl);
+      a.remove();
+    }, 1500);
+  };
+
+  const dlLabelFor = (url) => {
+    const kind = mediaKindFromUrl(url);
+    if (kind === "video") return "Baixar vídeo";
+    if (kind === "image") return "Baixar imagem";
+    return "Baixar arquivo";
+  };
+
+  const downloadImageUrl = (url, btn) => {
+    if (!url) return;
+    const label = dlLabelFor(url);
+    if (btn) {
+      btn.disabled = true;
+      btn.classList.remove("is-ok", "is-err");
+      btn.title = "Baixando…";
+    }
+
+    const finishOk = () => {
+      if (!btn) return;
+      btn.disabled = false;
+      btn.classList.add("is-ok");
+      btn.title = "Baixado";
+      setTimeout(() => {
+        btn.classList.remove("is-ok");
+        btn.title = label;
+      }, 1800);
+    };
+    const finishErr = (msg) => {
+      if (!btn) return;
+      btn.disabled = false;
+      btn.classList.add("is-err");
+      btn.title = msg || "Falha ao baixar";
+      setTimeout(() => {
+        btn.classList.remove("is-err");
+        btn.title = label;
+      }, 2500);
+    };
+
+    const viaGmDownload = () =>
+      new Promise((resolve, reject) => {
+        if (typeof GM_download !== "function") {
+          reject(new Error("GM_download indisponível"));
+          return;
+        }
+        try {
+          GM_download({
+            url,
+            name: filenameFromUrl(url),
+            saveAs: false,
+            onload: () => resolve(true),
+            onerror: (e) => reject(e || new Error("GM_download falhou")),
+            ontimeout: () => reject(new Error("timeout")),
+          });
+        } catch (e) {
+          reject(e);
+        }
+      });
+
+    const viaXhrBlob = () =>
+      new Promise((resolve, reject) => {
+        if (typeof GM_xmlhttpRequest !== "function") {
+          reject(new Error("GM_xmlhttpRequest indisponível"));
+          return;
+        }
+        GM_xmlhttpRequest({
+          method: "GET",
+          url,
+          responseType: "blob",
+          timeout: 120000,
+          onload: (res) => {
+            try {
+              if (res.status < 200 || res.status >= 300) {
+                reject(new Error("HTTP " + res.status));
+                return;
+              }
+              const blob = res.response;
+              if (!blob) {
+                reject(new Error("Resposta vazia"));
+                return;
+              }
+              const type = String(blob.type || res.responseHeaders || "").toLowerCase();
+              if (
+                type &&
+                !/image\//.test(type) &&
+                !/video\//.test(type) &&
+                !/octet-stream|binary|application\/mp4/.test(type)
+              ) {
+                if (!looksLikeMediaUrl(url)) {
+                  reject(new Error("Não é mídia"));
+                  return;
+                }
+              }
+              triggerBlobDownload(blob, filenameFromUrl(url, blob.type));
+              resolve(true);
+            } catch (e) {
+              reject(e);
+            }
+          },
+          onerror: () => reject(new Error("rede")),
+          ontimeout: () => reject(new Error("timeout")),
+        });
+      });
+
+    // Direto na pasta de Downloads (sem "Salvar como")
+    viaGmDownload()
+      .catch(() => viaXhrBlob())
+      .then(finishOk)
+      .catch((err) => {
+        console.warn("[Five9 Modelos] download mídia:", err);
+        finishErr("Falha ao baixar");
+      });
+  };
+
+  const createDlButton = (url) => {
+    const btn = document.createElement("button");
+    const label = dlLabelFor(url);
+    btn.type = "button";
+    btn.className = "f9-img-dl-btn f9-img-dl-inline";
+    btn.setAttribute("data-f9-img-dl", "1");
+    btn.setAttribute("data-f9-img-url", url);
+    btn.title = label;
+    btn.setAttribute("aria-label", label);
+    btn.innerHTML = IMG_DL_ICON;
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      downloadImageUrl(url, btn);
+    });
+    return btn;
+  };
+
+  const findLinkCard = (el) => {
+    if (!el) return null;
+    let best = el.parentElement || el;
+    let node = el;
+    for (let i = 0; i < 12 && node && node !== document.body; i++) {
+      if (isClearlySidebar(node)) break;
+      const cls = String(node.className || "").toLowerCase();
+      const role = String(node.getAttribute?.("role") || "").toLowerCase();
+      let rect = null;
+      try {
+        rect = node.getBoundingClientRect();
+      } catch (_) {}
+      const looksCard =
+        /message|bubble|chat-msg|msg-body|transcript|inbound|outbound|content|attachment|media-card|card/.test(
+          cls + " " + role
+        );
+      if (rect && rect.width >= 160 && rect.height >= 28 && rect.height <= 720) {
+        if (looksCard) return node;
+        // preferir o ancestral “compacto” do link (o card cinza), não a página inteira
+        if (rect.height <= 360 && rect.width <= Math.min(window.innerWidth || 1200, 980)) {
+          best = node;
+        }
+      }
+      node = node.parentElement;
+    }
+    return best || el;
+  };
+
+  const ensureButtonRow = (anchorEl, url) => {
+    const next = anchorEl.nextElementSibling;
+    if (next && next.classList && next.classList.contains("f9-media-dl-row")) next.remove();
+    if (next && next.classList && next.classList.contains("f9-img-dl-btn")) next.remove();
+
+    const host = findLinkCard(anchorEl) || anchorEl.parentElement || anchorEl;
+    host.classList.add("f9-media-dl-host");
+
+    const existing = host.querySelector("button.f9-img-dl-btn");
+    if (existing && host.contains(existing)) {
+      existing.setAttribute("data-f9-img-url", url);
+      existing.title = dlLabelFor(url);
+      existing.classList.add("f9-img-dl-inline");
+      existing.classList.remove("f9-img-dl-side");
+      if (existing.parentElement !== host) host.appendChild(existing);
+      return existing;
+    }
+
+    host.querySelectorAll("button.f9-img-dl-btn").forEach((b) => b.remove());
+
+    const btn = createDlButton(url);
+    host.appendChild(btn);
+    return btn;
+  };
+
+  const attachButtonNear = (el, url) => {
+    if (!el || !url || !el.isConnected) return false;
+    if (!isAllowedChatTarget(el)) return false;
+    try {
+      ensureButtonRow(el, url);
+      return true;
+    } catch (e) {
+      console.warn("[Five9 Modelos] attach download:", e);
+      return false;
+    }
+  };
+
+  const probeImageUrl = (url, onYes) => {
+    const cached = imgDlProbeCache.get(url);
+    if (cached === "yes") {
+      onYes();
+      return;
+    }
+    if (cached === "no" || cached === "pending") return;
+    imgDlProbeCache.set(url, "pending");
+    if (typeof GM_xmlhttpRequest !== "function") {
+      imgDlProbeCache.set(url, "no");
+      return;
+    }
+    const mark = (ok) => {
+      imgDlProbeCache.set(url, ok ? "yes" : "no");
+      if (ok) onYes();
+    };
+    GM_xmlhttpRequest({
+      method: "HEAD",
+      url,
+      timeout: 8000,
+      onload: (res) => {
+        const headers = String(res.responseHeaders || "");
+        const ct = ((/content-type:\s*([^\r\n;]+)/i.exec(headers) || [])[1] || "").trim();
+        if (/^(image|video)\//i.test(ct)) mark(true);
+        else if (/^audio\//i.test(ct)) mark(false);
+        else mark(looksLikeMediaUrl(url));
+      },
+      onerror: () => mark(false),
+      ontimeout: () => mark(false),
+    });
+  };
+
+  const processAnchor = (a) => {
+    if (!a || a.dataset.f9ImgDlDone === "1") return;
+    if (isOurUi(a)) {
+      a.dataset.f9ImgDlDone = "1";
+      return;
+    }
+    const href = a.href || a.getAttribute("href") || "";
+    if (!href || !/^https?:/i.test(href)) {
+      a.dataset.f9ImgDlDone = "1";
+      return;
+    }
+    if (isClearlySidebar(a)) {
+      a.dataset.f9ImgDlDone = "1";
+      return;
+    }
+    if (NOT_MEDIA_HOST_RE.test(href) || AUDIO_EXT_RE.test(href)) {
+      a.dataset.f9ImgDlDone = "1";
+      return;
+    }
+    if (looksLikeMediaUrl(href)) {
+      if (attachButtonNear(a, href)) a.dataset.f9ImgDlDone = "1";
+      return;
+    }
+    if (maybeMediaUrl(href)) {
+      if (a.dataset.f9ImgDlProbe === "1") return;
+      a.dataset.f9ImgDlProbe = "1";
+      probeImageUrl(href, () => {
+        if (attachButtonNear(a, href)) a.dataset.f9ImgDlDone = "1";
+      });
+      return;
+    }
+    a.dataset.f9ImgDlDone = "1";
+  };
+
+  const processImg = (img) => {
+    if (!img || img.dataset.f9ImgDlDone === "1") return;
+    if (!isAllowedChatTarget(img)) {
+      img.dataset.f9ImgDlDone = "1";
+      return;
+    }
+    const src = img.currentSrc || img.src || img.getAttribute("src") || "";
+    if (!src || !/^https?:/i.test(src)) {
+      img.dataset.f9ImgDlDone = "1";
+      return;
+    }
+    if (img.closest("a[href]")) {
+      img.dataset.f9ImgDlDone = "1";
+      return;
+    }
+    if (/(avatar|icon|emoji|logo|sprite|favicon|badge|profile-pic|gravatar)/i.test(src)) {
+      img.dataset.f9ImgDlDone = "1";
+      return;
+    }
+    if (AUDIO_EXT_RE.test(src)) {
+      img.dataset.f9ImgDlDone = "1";
+      return;
+    }
+    const w = img.naturalWidth || img.width || 0;
+    const h = img.naturalHeight || img.height || 0;
+    if ((w > 0 && w < 64) || (h > 0 && h < 64)) {
+      img.dataset.f9ImgDlDone = "1";
+      return;
+    }
+    if (looksLikeMediaUrl(src) || (w >= 120 && h >= 80)) {
+      if (attachButtonNear(img, src)) img.dataset.f9ImgDlDone = "1";
+      return;
+    }
+    img.dataset.f9ImgDlDone = "1";
+  };
+
+  // Five9 às vezes mostra URL como texto, sem <a href>
+  const processTextMediaLinks = (root) => {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+    const hits = [];
+    let node;
+    while ((node = walker.nextNode())) {
+      const text = node.nodeValue || "";
+      if (!/https?:\/\//i.test(text)) continue;
+      if (!MEDIA_EXT_RE.test(text) && !ANEXOS_RE.test(text)) continue;
+      const parent = node.parentElement;
+      if (!parent || isOurUi(parent) || isClearlySidebar(parent)) continue;
+      if (parent.closest("a[href], button, script, style, textarea, input")) continue;
+      if (parent.dataset.f9ImgDlText === "1") continue;
+      MEDIA_URL_IN_TEXT_RE.lastIndex = 0;
+      const m = MEDIA_URL_IN_TEXT_RE.exec(text);
+      if (!m) continue;
+      hits.push({ parent, url: m[0] });
+    }
+    hits.forEach(({ parent, url }) => {
+      parent.dataset.f9ImgDlText = "1";
+      attachButtonNear(parent, url);
+    });
+  };
+
+  const collectScanRoots = () => {
+    const roots = [document];
+    try {
+      const iframes = document.querySelectorAll("iframe");
+      for (let i = 0; i < iframes.length; i++) {
+        try {
+          const doc = iframes[i].contentDocument;
+          if (doc && doc.body) roots.push(doc);
+        } catch (_) {}
+      }
+    } catch (_) {}
+    return roots;
+  };
+
+  const cleanupBadButtons = () => {
+    document.querySelectorAll("button.f9-img-dl-btn").forEach((btn) => {
+      const host = btn.closest(".f9-media-dl-host") || btn.parentElement || btn;
+      if (!isAllowedChatTarget(btn) || isInteractionPreviewCard(host)) {
+        const row = btn.closest(".f9-media-dl-row");
+        host.classList?.remove?.("f9-media-dl-host");
+        btn.remove();
+        if (row && !row.querySelector(".f9-img-dl-btn")) row.remove();
+      }
+    });
+  };
+
+  const scanImageDownloads = () => {
+    try {
+      cleanupBadButtons();
+      const roots = collectScanRoots();
+      for (let r = 0; r < roots.length; r++) {
+        const doc = roots[r];
+        const body = doc.body;
+        if (!body) continue;
+        const anchors = body.querySelectorAll("a[href]:not([data-f9-img-dl-done='1'])");
+        for (let i = 0; i < anchors.length; i++) processAnchor(anchors[i]);
+        const imgs = body.querySelectorAll("img[src]:not([data-f9-img-dl-done='1'])");
+        for (let j = 0; j < imgs.length; j++) processImg(imgs[j]);
+        processTextMediaLinks(body);
+      }
+    } catch (e) {
+      console.warn("[Five9 Modelos] scan mídia:", e);
+    }
+  };
+
+  const scheduleImageScan = () => {
+    if (imgDlScanTimer) clearTimeout(imgDlScanTimer);
+    imgDlScanTimer = setTimeout(scanImageDownloads, 150);
+  };
+
+  const startImageDownloadWatch = () => {
+    cleanupBadButtons();
+    scanImageDownloads();
+    if (imgDlObserver) imgDlObserver.disconnect();
+    imgDlObserver = new MutationObserver(() => scheduleImageScan());
+    if (document.body) {
+      imgDlObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
+    }
+    if (startImageDownloadWatch._iv) clearInterval(startImageDownloadWatch._iv);
+    startImageDownloadWatch._iv = setInterval(scanImageDownloads, 2000);
+  };
+
+  const stopImageDownloadWatch = () => {
+    if (imgDlObserver) {
+      imgDlObserver.disconnect();
+      imgDlObserver = null;
+    }
+    if (imgDlScanTimer) {
+      clearTimeout(imgDlScanTimer);
+      imgDlScanTimer = null;
+    }
+    if (startImageDownloadWatch._iv) {
+      clearInterval(startImageDownloadWatch._iv);
+      startImageDownloadWatch._iv = null;
+    }
+    document.querySelectorAll("button.f9-img-dl-btn, .f9-media-dl-row").forEach((n) => n.remove());
+  };
+
   window.__five9Templates = {
     destroy() {
       picking = false;
@@ -2869,13 +4334,17 @@
       document.removeEventListener("click", onPickClick, true);
       window.removeEventListener("keydown", onHotkey, true);
       stopAiWatch();
+      stopImageDownloadWatch();
       if (mountTimer) clearInterval(mountTimer);
       if (mountObserver) mountObserver.disconnect();
       markTarget(null);
       style.remove();
+      hideToast();
       panel.remove();
       aiCard.remove();
       modal.remove();
+      toast.remove();
+      formModal.remove();
       delete window.__five9Templates;
     },
     focusSearch() {
@@ -2906,6 +4375,7 @@
     render();
     syncRouteVisibility();
     startAiWatch();
+    startImageDownloadWatch();
     ensureUpdateFloat();
     renderUpdateUi();
     checkForUpdates(true);
@@ -2915,8 +4385,8 @@
       setStatus("", "");
     } else if (targetEl) {
       setStatus(
-        `Flutuante (TextDetailsNote não encontrado). Caixa: ${describe(targetEl)}`,
-        "warn"
+        "Painel flutuante. Caixa de mensagem já detectada.",
+        "ok"
       );
     } else {
       setStatus(
@@ -2924,6 +4394,22 @@
         "warn"
       );
     }
+
+    toastCloseEl.addEventListener("click", hideToast);
+    formModal.addEventListener("click", (e) => {
+      if (e.target === formModal) closeModelForm();
+    });
+    formModal.addEventListener("click", async (e) => {
+      const btn = e.target.closest("button[data-act]");
+      if (!btn || !formModal.contains(btn)) return;
+      const act = btn.dataset.act;
+      if (act === "close-form") closeModelForm();
+      else if (act === "add") saveModelFromForm();
+      else if (act === "create-tag") {
+        // reutiliza o fluxo do painel
+        panel.querySelector('[data-act="create-tag"]').click();
+      }
+    });
   };
 
   boot();
