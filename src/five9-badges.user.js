@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Five9 – Badges de Atendimento
 // @namespace    https://github.com/local/five9-templates
-// @version      1.4.2
-// @description  Badges de atendimento para cada chat!
+// @version      1.4.3
+// @description  Badges de atendimento para cada chat, com presets reutilizáveis!
 // @author       Arthur Vinícius
 // @match        https://app-atl.five9.com/clients/agent/*
 // @match        *://app-atl.five9.com/*
@@ -22,14 +22,17 @@
  *
  * Badge da visita ativa: sobrevive re-render e troca de página (config/voz).
  * Só some quando o chat deixa a fila de fato (não ao sair da tela de chat).
+ * Presets: motivos reutilizáveis (localStorage) para não digitar de novo.
  *
  * Remover: desative o script ou window.__five9Badges.destroy()
  */
 (() => {
   const LEGACY_STORAGE_KEY = "five9_chat_badges_v1";
   const SESSION_STORE_KEY = "five9_chat_badges_v2_session";
+  const PRESETS_KEY = "five9_badge_presets_v1";
   const STYLE_ID = "five9-badges-style";
   const MODAL_ID = "five9-badges-modal";
+  const MAX_PRESETS = 40;
   const CTRL_ATTR = "data-f9-badge-ctrl";
   const KEY_ATTR = "data-f9-chat-key";
   const VISIT_ATTR = "data-f9-visit-id";
@@ -150,6 +153,75 @@
     el.style.color = c.fg;
     el.style.boxShadow = `inset 0 0 0 1px ${c.border}`;
     el.dataset.colorId = c.id;
+  };
+
+  const loadPresets = () => {
+    try {
+      const raw = localStorage.getItem(PRESETS_KEY);
+      if (!raw) return [];
+      const data = JSON.parse(raw);
+      if (!Array.isArray(data)) return [];
+      return data
+        .filter((p) => p && String(p.label || "").trim())
+        .map((p) => ({
+          id: String(p.id || uid()),
+          label: String(p.label).trim().slice(0, 40),
+          colorId: resolveColorId(p.label, p.colorId || ""),
+          usedAt: Number(p.usedAt) || 0,
+        }))
+        .sort((a, b) => (b.usedAt || 0) - (a.usedAt || 0));
+    } catch {
+      return [];
+    }
+  };
+
+  const savePresets = (list) => {
+    try {
+      const clean = (Array.isArray(list) ? list : [])
+        .filter((p) => p && String(p.label || "").trim())
+        .slice(0, MAX_PRESETS)
+        .map((p) => ({
+          id: String(p.id || uid()),
+          label: String(p.label).trim().slice(0, 40),
+          colorId: resolveColorId(p.label, p.colorId || ""),
+          usedAt: Number(p.usedAt) || Date.now(),
+        }));
+      localStorage.setItem(PRESETS_KEY, JSON.stringify(clean));
+      return clean;
+    } catch {
+      return list || [];
+    }
+  };
+
+  const upsertPreset = (label, colorId = "") => {
+    const name = String(label || "").trim().slice(0, 40);
+    if (!name) return loadPresets();
+    const list = loadPresets();
+    const key = normalize(name);
+    const idx = list.findIndex((p) => normalize(p.label) === key);
+    const entry = {
+      id: idx >= 0 ? list[idx].id : uid(),
+      label: name,
+      colorId: resolveColorId(name, colorId),
+      usedAt: Date.now(),
+    };
+    if (idx >= 0) list.splice(idx, 1);
+    list.unshift(entry);
+    return savePresets(list);
+  };
+
+  const removePreset = (presetId) => {
+    const id = String(presetId || "");
+    if (!id) return loadPresets();
+    return savePresets(loadPresets().filter((p) => p.id !== id));
+  };
+
+  const touchPreset = (presetId) => {
+    const list = loadPresets();
+    const hit = list.find((p) => p.id === presetId);
+    if (!hit) return list;
+    hit.usedAt = Date.now();
+    return savePresets(list);
   };
 
   const loadBadges = () => {
@@ -564,7 +636,7 @@
     }
     #${MODAL_ID}.open { display: flex; }
     #${MODAL_ID} .f9b-card {
-      width: min(400px, 100%);
+      width: min(440px, 100%);
       background: #fff;
       color: #1f2937;
       border: 1px solid #e5e7eb;
@@ -584,6 +656,158 @@
       border: 1px solid #e5e7eb;
       border-radius: 6px;
       padding: 6px 8px;
+    }
+    #${MODAL_ID} .f9b-presets-wrap {
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      background: #f8fafc;
+      border: 1px solid #e8eef5;
+      border-radius: 8px;
+    }
+    #${MODAL_ID} .f9b-presets-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    #${MODAL_ID} .f9b-presets-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #334155;
+      letter-spacing: 0.01em;
+    }
+    #${MODAL_ID} .f9b-presets-hint {
+      font-size: 11px;
+      color: #94a3b8;
+    }
+    #${MODAL_ID} .f9b-presets {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      max-height: 118px;
+      overflow: auto;
+      padding: 0;
+    }
+    #${MODAL_ID} .f9b-presets-empty {
+      font-size: 12px;
+      color: #94a3b8;
+      padding: 2px 0;
+      line-height: 1.4;
+    }
+    #${MODAL_ID} .f9b-preset {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      max-width: 100%;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      padding: 4px 5px 4px 9px;
+      cursor: pointer;
+      font: 600 11px/1.3 "Segoe UI", system-ui, sans-serif;
+      background: #f3f4f6;
+      color: #374151;
+      transition: box-shadow .15s ease, transform .12s ease;
+    }
+    #${MODAL_ID} .f9b-preset:hover {
+      filter: brightness(0.98);
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.16);
+      transform: translateY(-1px);
+    }
+    #${MODAL_ID} .f9b-preset-label {
+      max-width: 140px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #${MODAL_ID} .f9b-preset-del {
+      width: 18px;
+      height: 18px;
+      border: 0;
+      border-radius: 50%;
+      background: rgba(15, 23, 42, 0.08);
+      color: inherit;
+      cursor: pointer;
+      font-size: 12px;
+      line-height: 1;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0.7;
+    }
+    #${MODAL_ID} .f9b-preset-del:hover {
+      opacity: 1;
+      background: rgba(220, 38, 38, 0.14);
+      color: #b91c1c;
+    }
+    #${MODAL_ID} .f9b-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid #e5edf5;
+      background: linear-gradient(180deg, #fbfdff 0%, #f4f7fb 100%);
+      cursor: pointer;
+      user-select: none;
+    }
+    #${MODAL_ID} .f9b-toggle:hover {
+      border-color: #d5e2f0;
+    }
+    #${MODAL_ID} .f9b-toggle-copy {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+    }
+    #${MODAL_ID} .f9b-toggle-title {
+      font-size: 12px;
+      font-weight: 650;
+      color: #1f2937;
+    }
+    #${MODAL_ID} .f9b-toggle-sub {
+      font-size: 11px;
+      color: #6b7280;
+      line-height: 1.35;
+    }
+    #${MODAL_ID} .f9b-toggle input {
+      position: absolute;
+      opacity: 0;
+      width: 1px;
+      height: 1px;
+      pointer-events: none;
+    }
+    #${MODAL_ID} .f9b-switch {
+      position: relative;
+      flex: 0 0 auto;
+      width: 40px;
+      height: 22px;
+      border-radius: 999px;
+      background: #cbd5e1;
+      box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.06);
+      transition: background .18s ease;
+    }
+    #${MODAL_ID} .f9b-switch::after {
+      content: "";
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.22);
+      transition: transform .18s ease;
+    }
+    #${MODAL_ID} .f9b-toggle input:checked + .f9b-switch {
+      background: #2563eb;
+    }
+    #${MODAL_ID} .f9b-toggle input:checked + .f9b-switch::after {
+      transform: translateX(18px);
+    }
+    #${MODAL_ID} .f9b-toggle input:focus-visible + .f9b-switch {
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.22);
     }
     #${MODAL_ID} .f9b-input {
       width: 100%;
@@ -670,6 +894,13 @@
       <div class="f9b-title" id="f9b-modal-title" data-el="title">Badge do atendimento</div>
       <div class="f9b-text" data-el="text">Nome da badge (ex.: Avaria, Acesso Inviável, Endereço Incorreto)</div>
       <div class="f9b-driver" data-el="driver"></div>
+      <div class="f9b-presets-wrap">
+        <div class="f9b-presets-head">
+          <span class="f9b-presets-title">Presets salvos</span>
+          <span class="f9b-presets-hint">1 clique preenche · 2 cliques aplica</span>
+        </div>
+        <div class="f9b-presets" data-el="presets"></div>
+      </div>
       <input class="f9b-input" data-el="input" maxlength="40" placeholder="Ex.: Avaria" autocomplete="off" />
       <div class="f9b-color-label">Cor</div>
       <div class="f9b-colors" data-el="colors" role="listbox" aria-label="Cor da badge"></div>
@@ -677,6 +908,14 @@
         <span>Prévia:</span>
         <span class="f9b-preview-badge" data-el="preview">Avaria</span>
       </div>
+      <label class="f9b-toggle">
+        <span class="f9b-toggle-copy">
+          <span class="f9b-toggle-title">Guardar como preset</span>
+          <span class="f9b-toggle-sub">Reutilizar este motivo em outros motoristas</span>
+        </span>
+        <input type="checkbox" data-el="save-preset" checked />
+        <span class="f9b-switch" aria-hidden="true"></span>
+      </label>
       <div class="f9b-actions">
         <button type="button" class="f9b-delete" data-el="delete" hidden>Apagar</button>
         <button type="button" class="f9b-cancel" data-el="cancel">Cancelar</button>
@@ -692,6 +931,8 @@
   const modalInput = modal.querySelector('[data-el="input"]');
   const modalColors = modal.querySelector('[data-el="colors"]');
   const modalPreview = modal.querySelector('[data-el="preview"]');
+  const modalPresets = modal.querySelector('[data-el="presets"]');
+  const modalSavePreset = modal.querySelector('[data-el="save-preset"]');
   const modalCancel = modal.querySelector('[data-el="cancel"]');
   const modalOk = modal.querySelector('[data-el="ok"]');
   const modalDelete = modal.querySelector('[data-el="delete"]');
@@ -720,6 +961,58 @@
     }
   };
 
+  const applyPresetToForm = (preset) => {
+    if (!preset) return;
+    modalInput.value = preset.label || "";
+    modalSelectedColor = resolveColorId(preset.label, preset.colorId || "");
+    modalColorLocked = true;
+    renderColorSwatches(modalSelectedColor);
+    paintModalPreview();
+  };
+
+  const renderPresetChips = (onUse, onUseNow) => {
+    const list = loadPresets();
+    modalPresets.innerHTML = "";
+    if (!list.length) {
+      const empty = document.createElement("div");
+      empty.className = "f9b-presets-empty";
+      empty.textContent = "Nenhum preset ainda. Ative Guardar como preset ao salvar.";
+      modalPresets.appendChild(empty);
+      return;
+    }
+    for (const p of list) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "f9b-preset";
+      chip.dataset.presetId = p.id;
+      chip.title = "Clique para preencher · Duplo clique para aplicar já";
+      applyBadgeColor(chip, p.colorId);
+      const label = document.createElement("span");
+      label.className = "f9b-preset-label";
+      label.textContent = p.label;
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "f9b-preset-del";
+      del.dataset.act = "del-preset";
+      del.dataset.presetId = p.id;
+      del.title = "Remover preset";
+      del.setAttribute("aria-label", "Remover preset");
+      del.textContent = "×";
+      chip.appendChild(label);
+      chip.appendChild(del);
+      chip.addEventListener("click", (e) => {
+        if (e.target.closest?.('[data-act="del-preset"]')) return;
+        onUse?.(p);
+      });
+      chip.addEventListener("dblclick", (e) => {
+        if (e.target.closest?.('[data-act="del-preset"]')) return;
+        e.preventDefault();
+        onUseNow?.(p);
+      });
+      modalPresets.appendChild(chip);
+    }
+  };
+
   const openBadgeModal = ({
     driverName = "",
     sessionKey = "",
@@ -732,8 +1025,8 @@
       modalText.textContent = pendingOnly
         ? "Badge desta sessão (some ao finalizar o atendimento)."
         : editing
-          ? "Altere o nome ou a cor da badge."
-          : "Nome da badge (ex.: Avaria, Acesso Inviável, Endereço Incorreto)";
+          ? "Altere o nome ou a cor, ou escolha um preset."
+          : "Escolha um preset ou digite o motivo (ex.: Avaria, Acesso Inviável)";
       modalDriver.textContent = driverName
         ? `Motorista: ${driverName}`
         : "Atendimento sem nome detectado";
@@ -743,6 +1036,7 @@
         existing?.colorId || ""
       );
       modalColorLocked = !!(existing?.colorId && COLOR_BY_ID[existing.colorId]);
+      modalSavePreset.checked = true;
       renderColorSwatches(modalSelectedColor);
       paintModalPreview();
       modalDelete.hidden = !editing;
@@ -755,6 +1049,7 @@
         modalDelete.removeEventListener("click", onDelete);
         modal.removeEventListener("click", onBackdrop);
         modalColors.removeEventListener("click", onColorClick);
+        modalPresets.removeEventListener("click", onPresetsClick);
         modalInput.removeEventListener("input", onInput);
         window.removeEventListener("keydown", onKey, true);
         resolve(value);
@@ -765,6 +1060,7 @@
           value: modalInput.value.trim(),
           colorId: modalSelectedColor,
           sessionKey,
+          savePreset: !!modalSavePreset.checked,
         });
       const onCancel = () => finish({ action: "cancel", sessionKey });
       const onDelete = () => finish({ action: "delete", sessionKey });
@@ -779,8 +1075,26 @@
         renderColorSwatches(modalSelectedColor);
         paintModalPreview();
       };
+      const onPresetsClick = (e) => {
+        const del = e.target.closest?.('[data-act="del-preset"]');
+        if (!del) return;
+        e.preventDefault();
+        e.stopPropagation();
+        removePreset(del.dataset.presetId);
+        renderPresetChips(applyPresetToForm, usePresetNow);
+      };
+      const usePresetNow = (preset) => {
+        applyPresetToForm(preset);
+        touchPreset(preset.id);
+        finish({
+          action: "save",
+          value: String(preset.label || "").trim(),
+          colorId: resolveColorId(preset.label, preset.colorId || ""),
+          sessionKey,
+          savePreset: false,
+        });
+      };
       const onInput = () => {
-        // Enquanto o usuário não escolheu cor manualmente, sugere pela tipagem
         if (!modalColorLocked) {
           modalSelectedColor = resolveColorId(modalInput.value.trim());
           renderColorSwatches(modalSelectedColor);
@@ -797,11 +1111,14 @@
         }
       };
 
+      renderPresetChips(applyPresetToForm, usePresetNow);
+
       modalOk.addEventListener("click", onOk);
       modalCancel.addEventListener("click", onCancel);
       modalDelete.addEventListener("click", onDelete);
       modal.addEventListener("click", onBackdrop);
       modalColors.addEventListener("click", onColorClick);
+      modalPresets.addEventListener("click", onPresetsClick);
       modalInput.addEventListener("input", onInput);
       window.addEventListener("keydown", onKey, true);
       modalInput.focus();
@@ -1320,6 +1637,9 @@
       if (res.action === "save") {
         if (!res.value || !sessionKey) return;
         setBadge(sessionKey, res.value, driverName, res.colorId || "", meta);
+        if (res.savePreset !== false) {
+          upsertPreset(res.value, res.colorId || "");
+        }
         refreshCtrl(ctrl, sessionKey, driverName, meta);
       }
     } finally {
@@ -1486,11 +1806,12 @@
     },
     rescan: scanAll,
     getAll: loadBadges,
+    getPresets: loadPresets,
   };
 
   start();
   console.log(
-    "%c[Five9 Badges v1.4.1] Ativado!",
+    "%c[Five9 Badges] Ativado! (presets)",
     "color:#9a3412;font-weight:bold"
   );
 })();
