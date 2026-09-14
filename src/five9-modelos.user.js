@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Five9 – Modelos de Mensagem
 // @namespace    https://github.com/local/five9-templates
-// @version      1.5.1
+// @version      1.5.2
 // @description  Painel de modelos para Five9 com pastas/tags, busca, sugestão, importação e download de mídia no chat.
 // @author       Arthur Vinícius
 // @match        https://app-atl.five9.com/clients/agent/*
@@ -37,7 +37,7 @@
   const FORM_MODAL_ID = "five9-model-form-modal";
   const TARGET_KEY = "five9_msg_target_hint_v1";
   const DEFAULT_TAG = "Geral";
-  const APP_VERSION = "1.5.1";
+  const APP_VERSION = "1.5.2";
   const AI_MIN_SCORE = 2.2;
   const AI_DRAFT_MIN_SCORE = 1.6;
   const AI_DRAFT_MIN_CHARS = 2;
@@ -1400,35 +1400,53 @@
      z-index: 1 !important;
      pointer-events: none !important;
    }
+   .f9-media-dl-wrap {
+     display: inline-flex !important;
+     align-items: center;
+     gap: 8px;
+     max-width: 100%;
+     vertical-align: middle;
+     flex-wrap: wrap;
+   }
    .f9-img-dl-btn {
      display: inline-flex !important;
      align-items: center;
      justify-content: center;
-     vertical-align: middle;
-     width: 32px;
-     height: 32px;
+     gap: 6px;
+     height: 28px;
+     min-width: 28px;
      margin: 0 !important;
-     padding: 0 !important;
-     border: 1px solid #bfdbfe !important;
-     border-radius: 8px !important;
-     background: #eff6ff !important;
-     color: #1d4ed8 !important;
+     padding: 0 10px !important;
+     border: 1px solid #d7dee8 !important;
+     border-radius: 7px !important;
+     background: linear-gradient(180deg, #ffffff 0%, #f7f9fc 100%) !important;
+     color: #1f3b57 !important;
      cursor: pointer;
-     box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+     box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
      flex: 0 0 auto;
+     font: 600 12px/1 "Segoe UI", system-ui, sans-serif !important;
+     letter-spacing: 0.01em;
+     transition: background .15s ease, border-color .15s ease, color .15s ease, box-shadow .15s ease;
    }
    .f9-img-dl-btn:hover {
-     background: #dbeafe !important;
+     background: #eff6ff !important;
      border-color: #93c5fd !important;
+     color: #1d4ed8 !important;
+     box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
    }
    .f9-img-dl-btn:disabled {
-     opacity: 0.65;
+     opacity: 0.7;
      cursor: wait;
    }
    .f9-img-dl-btn svg {
-     width: 15px;
-     height: 15px;
+     width: 14px;
+     height: 14px;
      pointer-events: none;
+     flex: 0 0 auto;
+   }
+   .f9-img-dl-btn .f9-dl-label {
+     pointer-events: none;
+     white-space: nowrap;
    }
    .f9-img-dl-btn.is-ok {
      background: #ecfdf5 !important;
@@ -1440,18 +1458,14 @@
      border-color: #fecaca !important;
      color: #b91c1c !important;
    }
-   .f9-media-dl-host {
-     position: relative !important;
-     overflow: visible !important;
-     padding-right: 44px !important;
-     box-sizing: border-box !important;
-   }
-   .f9-img-dl-btn.f9-img-dl-inline {
-     position: absolute !important;
-     top: 50% !important;
-     right: 10px !important;
-     transform: translateY(-50%) !important;
-     z-index: 6;
+   .f9-media-dl-host,
+   .f9-img-dl-btn.f9-img-dl-inline,
+   .f9-img-dl-btn.f9-img-dl-side {
+     position: static !important;
+     top: auto !important;
+     right: auto !important;
+     transform: none !important;
+     padding-right: 0 !important;
    }
    .f9-media-dl-row { display: none !important; }
    #${PANEL_ID} .ft-import-hint {
@@ -1904,6 +1918,7 @@
     textarea = false,
     inputValue = "",
     inputPlaceholder = "",
+    okColor = "",
   } = {}) =>
     new Promise((resolve) => {
       modalTitle.textContent = title;
@@ -1934,7 +1949,9 @@
         modalTextarea.value = "";
       }
       modalOk.textContent = okLabel;
-      modalOk.style.background = danger ? "#dc2626" : input || textarea ? "#2563eb" : "#059669";
+      modalOk.style.background =
+        okColor ||
+        (danger ? "#dc2626" : input || textarea ? "#2563eb" : "#059669");
       const strayReplace = modal.querySelector("[data-el='modal-replace']");
       if (strayReplace) strayReplace.hidden = true;
       modalCancel.textContent = "Cancelar";
@@ -3754,8 +3771,8 @@
     });
   })();
 
-  /* ========== Download rápido de mídia (imagem/vídeo) no chat ========== */
-  const IMG_DL_ICON = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v12m0 0l4-4m-4 4l-4-4M5 19h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  /* Download de mídia (imagem/vídeo) no chat */
+  const IMG_DL_ICON = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v12m0 0l4-4m-4 4l-4-4M5 19h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   const IMAGE_EXT_RE =
     /\.(jpe?g|png|gif|webp|bmp|svg|avif|heic|heif|jfif|tif{1,2})(?:$|[?#])/i;
   const VIDEO_EXT_RE = /\.(mp4|webm|mov|m4v|mkv|avi)(?:$|[?#])/i;
@@ -3767,12 +3784,13 @@
   const NOT_MEDIA_HOST_RE =
     /(maps\.google|google\.com\/maps|youtube\.com|youtu\.be|vimeo\.com|facebook\.com\/(?:watch|reel)|instagram\.com\/(?:p|reel)|tiktok\.com|linkedin\.com|wa\.me|api\.whatsapp\.com|tel:|mailto:)/i;
   const ANEXOS_RE = /\/anexos\//i;
-  // Lista/fila/card de interação — NÃO usar só "sidebar" (pega o chat inteiro no Five9)
   const SIDEBAR_RE =
-    /(conversation-list|chat-list|session-list|interaction-list|contact-list|preview-list|workitem-list|engagement-list|inbox-list|queue-list|work-?items?|interactions?-?(?:list|item|row|card)?|engagements?-?(?:list|item)?|queue-?(?:list|item|row)?|session-?(?:list|item)?|my-interactions|active-interactions|left-rail|left-panel|side-panel|nav-list|item-list|list-item|context-header|customer-card|contact-card|interaction-card|workitem-card)/i;
+    /(conversation-list|chat-list|session-list|interaction-list|contact-list|preview-list|workitem-list|engagement-list|inbox-list|queue-list|my-interactions|active-interactions|left-rail|left-panel|side-panel|workitem-card|interaction-card)/i;
   const PREVIEW_CARD_TEXT_RE =
     /\b(nenhum assunto|sem assunto|no subject|agora|há \d+\s*min|min atrás|NF\s*#?\d+)\b/i;
-  const CHANNEL_BADGE_RE = /\b(wa|whatsapp|sms|voice|email|chat)\b/i;
+  const CHANNEL_BADGE_RE = /\b(wa|whatsapp|sms|voice|email)\b/i;
+  const CHAT_MEDIA_TEXT_RE =
+    /(https?:\/\/|\/anexos\/|imagem enviada|v[ií]deo enviado|\.jpe?g|\.png|\.gif|\.webp|\.mp4|\.mov)/i;
 
   let imgDlObserver = null;
   let imgDlScanTimer = null;
@@ -3804,32 +3822,32 @@
   const isInteractionPreviewCard = (el) => {
     if (!el) return true;
     let node = el;
-    for (let i = 0; i < 12 && node && node !== document.body; i++) {
+    for (let i = 0; i < 10 && node && node !== document.body; i++) {
       const cls = String(node.className || "");
       const id = String(node.id || "");
-      const aria = String(node.getAttribute?.("aria-label") || "");
-      const role = String(node.getAttribute?.("role") || "");
-      if (SIDEBAR_RE.test(`${cls} ${id} ${aria} ${role}`)) return true;
+      if (SIDEBAR_RE.test(`${cls} ${id}`)) {
+        // se o próprio alvo já tem mídia, é mensagem do chat — não bloquear
+        if (CHAT_MEDIA_TEXT_RE.test(shortText(el))) return false;
+        return true;
+      }
 
       let rect = null;
       try {
         rect = node.getBoundingClientRect();
       } catch (_) {}
       const text = shortText(node);
-      if (rect && text && text.length >= 8 && text.length <= 320) {
+      if (rect && text && text.length >= 8 && text.length <= 280) {
+        if (CHAT_MEDIA_TEXT_RE.test(text)) {
+          node = node.parentElement;
+          continue;
+        }
         const compact =
-          rect.height > 36 && rect.height < 170 && rect.width > 140 && rect.width < 560;
+          rect.height > 36 && rect.height < 150 && rect.width > 140 && rect.width < 520;
         const looksPreview =
           PREVIEW_CARD_TEXT_RE.test(text) &&
           (CHANNEL_BADGE_RE.test(text) || /\bNF\s*#?\d+/i.test(text));
-        // Card de lista/interação (motorista) — nunca botão de download aqui
         if (compact && looksPreview) return true;
-        if (
-          compact &&
-          rect.left < 96 &&
-          rect.right < 560 &&
-          PREVIEW_CARD_TEXT_RE.test(text)
-        ) {
+        if (compact && rect.left < 90 && rect.right < 520 && PREVIEW_CARD_TEXT_RE.test(text)) {
           return true;
         }
       }
@@ -3843,7 +3861,14 @@
     if (isInteractionPreviewCard(el)) return true;
     try {
       const r = el.getBoundingClientRect();
-      if (r.left < 48 && r.right < 420 && r.height > 0 && r.height < 110 && r.width < 420) {
+      if (
+        r.left < 40 &&
+        r.right < 380 &&
+        r.height > 0 &&
+        r.height < 100 &&
+        r.width < 380 &&
+        !CHAT_MEDIA_TEXT_RE.test(shortText(el))
+      ) {
         return true;
       }
     } catch (_) {}
@@ -3852,7 +3877,8 @@
 
   const isAllowedChatTarget = (el) => {
     if (!el || !el.isConnected) return false;
-    if (isOurUi(el)) return false;
+    if (el.closest?.("#" + PANEL_ID) || el.closest?.("#" + AI_CARD_ID)) return false;
+    if (el.closest?.("#" + FORM_MODAL_ID) || el.closest?.("#" + TOAST_ID)) return false;
     return !isClearlySidebar(el);
   };
 
@@ -3871,6 +3897,8 @@
     if (NOT_MEDIA_HOST_RE.test(url)) return false;
     if (AUDIO_EXT_RE.test(url)) return false;
     if (looksLikeMediaUrl(url)) return true;
+    // anexos nuveto / CAP: /anexos/images/uuid ou /anexos/videos/uuid
+    if (ANEXOS_RE.test(url) && /\/(images?|videos?|files?|media)\//i.test(url)) return true;
     if (ANEXOS_RE.test(url) && /\/[a-f0-9-]{8,}[^/]*$/i.test(url.split("?")[0])) return true;
     return false;
   };
@@ -3935,6 +3963,60 @@
     return "Baixar arquivo";
   };
 
+  const DL_HISTORY_KEY = "five9_media_dl_history_v1";
+
+  const loadDlHistory = () => {
+    try {
+      const raw = sessionStorage.getItem(DL_HISTORY_KEY);
+      if (!raw) return {};
+      const data = JSON.parse(raw);
+      return data && typeof data === "object" ? data : {};
+    } catch {
+      return {};
+    }
+  };
+
+  const saveDlHistory = (map) => {
+    try {
+      sessionStorage.setItem(DL_HISTORY_KEY, JSON.stringify(map || {}));
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const markMediaDownloaded = (url) => {
+    const key = String(url || "").trim();
+    if (!key) return;
+    const map = loadDlHistory();
+    map[key] = { at: Date.now(), name: filenameFromUrl(key) };
+    // limita histórico
+    const keys = Object.keys(map);
+    if (keys.length > 80) {
+      keys
+        .sort((a, b) => (map[a].at || 0) - (map[b].at || 0))
+        .slice(0, keys.length - 80)
+        .forEach((k) => delete map[k]);
+    }
+    saveDlHistory(map);
+  };
+
+  const getMediaDownloadInfo = (url) => {
+    const key = String(url || "").trim();
+    if (!key) return null;
+    const hit = loadDlHistory()[key];
+    return hit && hit.at ? hit : null;
+  };
+
+  const formatDlAgo = (at) => {
+    const sec = Math.max(0, Math.floor((Date.now() - Number(at || 0)) / 1000));
+    if (sec < 45) return "há poucos segundos";
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `há ${min} min`;
+    const h = Math.floor(min / 60);
+    if (h < 24) return `há ${h}h`;
+    return "nesta sessão";
+  };
+
   const downloadImageUrl = (url, btn) => {
     if (!url) return;
     const label = dlLabelFor(url);
@@ -3942,16 +4024,22 @@
       btn.disabled = true;
       btn.classList.remove("is-ok", "is-err");
       btn.title = "Baixando…";
+      const lab = btn.querySelector(".f9-dl-label");
+      if (lab) lab.textContent = "…";
     }
 
     const finishOk = () => {
+      markMediaDownloaded(url);
       if (!btn) return;
       btn.disabled = false;
       btn.classList.add("is-ok");
       btn.title = "Baixado";
+      const lab = btn.querySelector(".f9-dl-label");
+      if (lab) lab.textContent = "Baixado";
       setTimeout(() => {
         btn.classList.remove("is-ok");
         btn.title = label;
+        if (lab) lab.textContent = "Baixar";
       }, 1800);
     };
     const finishErr = (msg) => {
@@ -3959,9 +4047,12 @@
       btn.disabled = false;
       btn.classList.add("is-err");
       btn.title = msg || "Falha ao baixar";
+      const lab = btn.querySelector(".f9-dl-label");
+      if (lab) lab.textContent = "Erro";
       setTimeout(() => {
         btn.classList.remove("is-err");
         btn.title = label;
+        if (lab) lab.textContent = "Baixar";
       }, 2500);
     };
 
@@ -4030,7 +4121,6 @@
         });
       });
 
-    // Direto na pasta de Downloads (sem "Salvar como")
     viaGmDownload()
       .catch(() => viaXhrBlob())
       .then(finishOk)
@@ -4040,74 +4130,82 @@
       });
   };
 
+  const requestDownloadMedia = async (url, btn) => {
+    if (!url) return;
+    const prev = getMediaDownloadInfo(url);
+    if (prev) {
+      const kind = mediaKindFromUrl(url);
+      const noun = kind === "video" ? "vídeo" : kind === "image" ? "imagem" : "arquivo";
+      const art = kind === "video" || kind === "file" ? "este" : "esta";
+      const ok = await askConfirm({
+        title: "Arquivo já baixado",
+        text:
+          `Você já baixou ${art} ${noun} ${formatDlAgo(prev.at)}.\n\n` +
+          "Deseja baixar novamente?",
+        preview: prev.name || filenameFromUrl(url),
+        okLabel: "Baixar novamente",
+        danger: false,
+        okColor: "#2563eb",
+      });
+      if (!ok) return;
+    }
+    downloadImageUrl(url, btn);
+  };
+
   const createDlButton = (url) => {
     const btn = document.createElement("button");
     const label = dlLabelFor(url);
     btn.type = "button";
-    btn.className = "f9-img-dl-btn f9-img-dl-inline";
+    btn.className = "f9-img-dl-btn";
     btn.setAttribute("data-f9-img-dl", "1");
     btn.setAttribute("data-f9-img-url", url);
     btn.title = label;
     btn.setAttribute("aria-label", label);
-    btn.innerHTML = IMG_DL_ICON;
+    btn.innerHTML = `${IMG_DL_ICON}<span class="f9-dl-label">Baixar</span>`;
     btn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      downloadImageUrl(url, btn);
+      requestDownloadMedia(url, btn);
     });
     return btn;
   };
 
-  const findLinkCard = (el) => {
-    if (!el) return null;
-    let best = el.parentElement || el;
-    let node = el;
-    for (let i = 0; i < 12 && node && node !== document.body; i++) {
-      if (isClearlySidebar(node)) break;
-      const cls = String(node.className || "").toLowerCase();
-      const role = String(node.getAttribute?.("role") || "").toLowerCase();
-      let rect = null;
-      try {
-        rect = node.getBoundingClientRect();
-      } catch (_) {}
-      const looksCard =
-        /message|bubble|chat-msg|msg-body|transcript|inbound|outbound|content|attachment|media-card|card/.test(
-          cls + " " + role
-        );
-      if (rect && rect.width >= 160 && rect.height >= 28 && rect.height <= 720) {
-        if (looksCard) return node;
-        // preferir o ancestral “compacto” do link (o card cinza), não a página inteira
-        if (rect.height <= 360 && rect.width <= Math.min(window.innerWidth || 1200, 980)) {
-          best = node;
-        }
-      }
-      node = node.parentElement;
-    }
-    return best || el;
+  const wrapAnchorForDownload = (anchorEl) => {
+    if (!anchorEl || !anchorEl.parentNode) return null;
+    let wrap = anchorEl.closest(".f9-media-dl-wrap");
+    if (wrap && wrap.contains(anchorEl)) return wrap;
+    wrap = document.createElement("span");
+    wrap.className = "f9-media-dl-wrap";
+    wrap.setAttribute("data-f9-media-wrap", "1");
+    anchorEl.parentNode.insertBefore(wrap, anchorEl);
+    wrap.appendChild(anchorEl);
+    return wrap;
   };
 
   const ensureButtonRow = (anchorEl, url) => {
+    // limpa layout antigo absoluto / linhas abaixo
     const next = anchorEl.nextElementSibling;
     if (next && next.classList && next.classList.contains("f9-media-dl-row")) next.remove();
     if (next && next.classList && next.classList.contains("f9-img-dl-btn")) next.remove();
+    const oldHost = anchorEl.closest(".f9-media-dl-host");
+    if (oldHost) {
+      oldHost.classList.remove("f9-media-dl-host");
+      oldHost.querySelectorAll(":scope > button.f9-img-dl-btn").forEach((b) => b.remove());
+    }
 
-    const host = findLinkCard(anchorEl) || anchorEl.parentElement || anchorEl;
-    host.classList.add("f9-media-dl-host");
+    const wrap = wrapAnchorForDownload(anchorEl);
+    if (!wrap) return null;
 
-    const existing = host.querySelector("button.f9-img-dl-btn");
-    if (existing && host.contains(existing)) {
+    let existing = wrap.querySelector("button.f9-img-dl-btn");
+    if (existing) {
       existing.setAttribute("data-f9-img-url", url);
       existing.title = dlLabelFor(url);
-      existing.classList.add("f9-img-dl-inline");
-      existing.classList.remove("f9-img-dl-side");
-      if (existing.parentElement !== host) host.appendChild(existing);
+      existing.setAttribute("aria-label", dlLabelFor(url));
       return existing;
     }
 
-    host.querySelectorAll("button.f9-img-dl-btn").forEach((b) => b.remove());
-
     const btn = createDlButton(url);
-    host.appendChild(btn);
+    wrap.appendChild(btn);
     return btn;
   };
 
@@ -4115,7 +4213,11 @@
     if (!el || !url || !el.isConnected) return false;
     if (!isAllowedChatTarget(el)) return false;
     try {
-      ensureButtonRow(el, url);
+      const anchor =
+        el.tagName === "A"
+          ? el
+          : el.closest?.("a[href]") || el;
+      ensureButtonRow(anchor, url);
       return true;
     } catch (e) {
       console.warn("[Five9 Modelos] attach download:", e);
@@ -4148,10 +4250,10 @@
         const ct = ((/content-type:\s*([^\r\n;]+)/i.exec(headers) || [])[1] || "").trim();
         if (/^(image|video)\//i.test(ct)) mark(true);
         else if (/^audio\//i.test(ct)) mark(false);
-        else mark(looksLikeMediaUrl(url));
+        else mark(looksLikeMediaUrl(url) || ANEXOS_RE.test(url));
       },
-      onerror: () => mark(false),
-      ontimeout: () => mark(false),
+      onerror: () => mark(looksLikeMediaUrl(url) || ANEXOS_RE.test(url)),
+      ontimeout: () => mark(looksLikeMediaUrl(url) || ANEXOS_RE.test(url)),
     });
   };
 
@@ -4166,24 +4268,21 @@
       a.dataset.f9ImgDlDone = "1";
       return;
     }
-    if (isClearlySidebar(a)) {
-      a.dataset.f9ImgDlDone = "1";
-      return;
-    }
     if (NOT_MEDIA_HOST_RE.test(href) || AUDIO_EXT_RE.test(href)) {
       a.dataset.f9ImgDlDone = "1";
       return;
     }
-    if (looksLikeMediaUrl(href)) {
-      if (attachButtonNear(a, href)) a.dataset.f9ImgDlDone = "1";
+    // só descarta lista quando NÃO parece mídia (evita perder anexos no chat)
+    if (isClearlySidebar(a) && !looksLikeMediaUrl(href) && !ANEXOS_RE.test(href)) {
+      a.dataset.f9ImgDlDone = "1";
       return;
     }
-    if (maybeMediaUrl(href)) {
-      if (a.dataset.f9ImgDlProbe === "1") return;
-      a.dataset.f9ImgDlProbe = "1";
-      probeImageUrl(href, () => {
-        if (attachButtonNear(a, href)) a.dataset.f9ImgDlDone = "1";
-      });
+    if (isClearlySidebar(a) && isInteractionPreviewCard(a) && !CHAT_MEDIA_TEXT_RE.test(shortText(a))) {
+      a.dataset.f9ImgDlDone = "1";
+      return;
+    }
+    if (looksLikeMediaUrl(href) || maybeMediaUrl(href)) {
+      if (attachButtonNear(a, href)) a.dataset.f9ImgDlDone = "1";
       return;
     }
     a.dataset.f9ImgDlDone = "1";
@@ -4265,11 +4364,17 @@
 
   const cleanupBadButtons = () => {
     document.querySelectorAll("button.f9-img-dl-btn").forEach((btn) => {
-      const host = btn.closest(".f9-media-dl-host") || btn.parentElement || btn;
+      const wrap = btn.closest(".f9-media-dl-wrap");
+      const host = wrap || btn.closest(".f9-media-dl-host") || btn.parentElement || btn;
       if (!isAllowedChatTarget(btn) || isInteractionPreviewCard(host)) {
         const row = btn.closest(".f9-media-dl-row");
         host.classList?.remove?.("f9-media-dl-host");
         btn.remove();
+        if (wrap && !wrap.querySelector(".f9-img-dl-btn")) {
+          // unwrap: move children out
+          while (wrap.firstChild) wrap.parentNode?.insertBefore(wrap.firstChild, wrap);
+          wrap.remove();
+        }
         if (row && !row.querySelector(".f9-img-dl-btn")) row.remove();
       }
     });
@@ -4283,7 +4388,9 @@
         const doc = roots[r];
         const body = doc.body;
         if (!body) continue;
-        const anchors = body.querySelectorAll("a[href]:not([data-f9-img-dl-done='1'])");
+        const anchors = body.querySelectorAll(
+          "a[href]:not([data-f9-img-dl-done='1']), a[href*='anexos'], a[href*='.jpg'], a[href*='.jpeg'], a[href*='.png'], a[href*='.mp4'], a[href*='.webp']"
+        );
         for (let i = 0; i < anchors.length; i++) processAnchor(anchors[i]);
         const imgs = body.querySelectorAll("img[src]:not([data-f9-img-dl-done='1'])");
         for (let j = 0; j < imgs.length; j++) processImg(imgs[j]);
@@ -4324,7 +4431,388 @@
       clearInterval(startImageDownloadWatch._iv);
       startImageDownloadWatch._iv = null;
     }
-    document.querySelectorAll("button.f9-img-dl-btn, .f9-media-dl-row").forEach((n) => n.remove());
+    document.querySelectorAll("button.f9-img-dl-btn, .f9-media-dl-row, .f9-media-dl-wrap").forEach((n) => {
+      if (n.classList?.contains("f9-media-dl-wrap")) {
+        while (n.firstChild) n.parentNode?.insertBefore(n.firstChild, n);
+      }
+      n.remove();
+    });
+  };
+
+  /* aba INTERAÇÃO (em vez de CONECTOR) */
+  /* Five9 tabs:
+       Interação → li#context > a.tt[aria-controls="panel-context"]
+       Conector  → li#connector > a.tt[aria-controls="panel-connector"]
+  */
+
+  const PREFER_INTERACAO_CLASS = "f9-prefer-interacao";
+  let interacaoPreferObs = null;
+  let interacaoPollTimer = 0;
+  let interacaoRaf = 0;
+  let interacaoBurstUntil = 0;
+  let interacaoLastChatKey = "";
+  let interacaoUserChoseConector = false;
+  let interacaoLastClickAt = 0;
+  let interacaoFlashStyle = null;
+  let interacaoHideUntil = 0;
+
+  const ensureFlashStyle = () => {
+    if (interacaoFlashStyle && interacaoFlashStyle.isConnected) return;
+    interacaoFlashStyle = document.getElementById("f9-prefer-interacao-style");
+    if (interacaoFlashStyle) return;
+    interacaoFlashStyle = document.createElement("style");
+    interacaoFlashStyle.id = "f9-prefer-interacao-style";
+    interacaoFlashStyle.textContent = `
+      /* Esconde o flash do Conector enquanto forçamos Interação */
+      body.${PREFER_INTERACAO_CLASS} #panel-connector,
+      body.${PREFER_INTERACAO_CLASS} [id="panel-connector"],
+      body.${PREFER_INTERACAO_CLASS} [aria-labelledby="connector"],
+      body.${PREFER_INTERACAO_CLASS} [aria-controls="panel-connector"][aria-selected="true"] ~ *,
+      html body.${PREFER_INTERACAO_CLASS} #panel-connector.active,
+      html body.${PREFER_INTERACAO_CLASS} .tab-pane#panel-connector,
+      html body.${PREFER_INTERACAO_CLASS} .tab-content > #panel-connector {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        height: 0 !important;
+        max-height: 0 !important;
+        overflow: hidden !important;
+      }
+      body.${PREFER_INTERACAO_CLASS} #panel-context,
+      body.${PREFER_INTERACAO_CLASS} [id="panel-context"],
+      html body.${PREFER_INTERACAO_CLASS} .tab-pane#panel-context,
+      html body.${PREFER_INTERACAO_CLASS} .tab-content > #panel-context {
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        height: auto !important;
+        max-height: none !important;
+        overflow: visible !important;
+        pointer-events: auto !important;
+      }
+      /* evita o destaque azul piscando no Conector */
+      body.${PREFER_INTERACAO_CLASS} li#connector.active > a.tt,
+      body.${PREFER_INTERACAO_CLASS} li#connector.active {
+        box-shadow: none !important;
+        outline: none !important;
+      }
+      body.${PREFER_INTERACAO_CLASS} li#context:not(.active) > a.tt,
+      body.${PREFER_INTERACAO_CLASS} li#context:not(.active) {
+        /* visual de ativa enquanto o click não aplica a classe */
+        box-shadow: inset 0 0 0 2px #2563eb !important;
+      }
+    `;
+    (document.head || document.documentElement).appendChild(interacaoFlashStyle);
+  };
+
+  const setPreferInteracaoMask = (on) => {
+    try {
+      ensureFlashStyle();
+      document.documentElement.classList.toggle(PREFER_INTERACAO_CLASS, !!on);
+      document.body?.classList?.toggle?.(PREFER_INTERACAO_CLASS, !!on);
+      if (on) interacaoHideUntil = Date.now() + 2500;
+    } catch (_) {}
+  };
+
+  const clearPreferMaskIfReady = () => {
+    try {
+      if (interacaoUserChoseConector) {
+        setPreferInteracaoMask(false);
+        return;
+      }
+      if (isContextTabActive() && !isConnectorTabActive()) {
+        setPreferInteracaoMask(false);
+        return;
+      }
+      if (Date.now() > interacaoHideUntil && Date.now() > interacaoBurstUntil) {
+        setPreferInteracaoMask(false);
+      }
+    } catch (_) {}
+  };
+
+  const getContextTabLi = () =>
+    document.querySelector(
+      'li#context[data-f9-template="TabHeaderItem"], li#context[data-id="context"], li#context, li[data-id="context"]'
+    );
+
+  const getConnectorTabLi = () =>
+    document.querySelector(
+      'li#connector[data-f9-template="TabHeaderItem"], li#connector[data-id="connector"], li#connector, li[data-id="connector"]'
+    );
+
+  const getContextTabLink = () => {
+    const li = getContextTabLi();
+    if (li) {
+      const a = li.querySelector('a.tt[role="tab"], a[role="tab"], a.tt, a[aria-controls="panel-context"]');
+      if (a) return a;
+    }
+    return document.querySelector(
+      'a[aria-controls="panel-context"], #context a.tt[role="tab"], #context a[role="tab"]'
+    );
+  };
+
+  const tabLiIsActive = (li) => {
+    if (!li) return false;
+    if (li.classList.contains("active")) return true;
+    const a = li.querySelector('a[role="tab"], a.tt');
+    return !!(a && a.getAttribute("aria-selected") === "true");
+  };
+
+  const isConnectorTabActive = () => tabLiIsActive(getConnectorTabLi());
+  const isContextTabActive = () => tabLiIsActive(getContextTabLi());
+
+  const isConnectorPanelShowing = () => {
+    try {
+      const panel = document.getElementById("panel-connector");
+      if (!panel) return false;
+      if (panel.classList.contains("active") || panel.getAttribute("aria-hidden") === "false") return true;
+      const st = window.getComputedStyle(panel);
+      if (st && st.display !== "none" && st.visibility !== "hidden") {
+        const r = panel.getBoundingClientRect();
+        if (r.width > 40 && r.height > 40) return true;
+      }
+    } catch (_) {}
+    return false;
+  };
+
+  const getActiveChatKey = () => {
+    try {
+      const selected = document.querySelector(
+        '[class*="conversation"][class*="selected"], [class*="Conversation"][class*="selected"], ' +
+          '[aria-selected="true"][class*="conversation"], [aria-selected="true"][class*="workitem"], ' +
+          ".active[data-id], [class*='chat-list'] .active, [class*='ConversationList'] .active"
+      );
+      if (selected) {
+        const t = (selected.innerText || selected.textContent || "").replace(/\s+/g, " ").trim();
+        if (t) return t.slice(0, 160);
+      }
+      const header = document.querySelector(
+        '[class*="conversation-header"], [class*="ChatHeader"], [class*="interaction-header"]'
+      );
+      if (header) {
+        const t = (header.innerText || "").replace(/\s+/g, " ").trim();
+        if (t) return t.slice(0, 160);
+      }
+    } catch (_) {}
+    return "";
+  };
+
+  const fireTabClick = (el) => {
+    if (!el) return;
+    const opts = { bubbles: true, cancelable: true, view: window };
+    try { el.dispatchEvent(new PointerEvent("pointerdown", { ...opts, pointerId: 1, pointerType: "mouse" })); } catch (_) {}
+    try { el.dispatchEvent(new MouseEvent("mousedown", opts)); } catch (_) {}
+    try { el.dispatchEvent(new PointerEvent("pointerup", { ...opts, pointerId: 1, pointerType: "mouse" })); } catch (_) {}
+    try { el.dispatchEvent(new MouseEvent("mouseup", opts)); } catch (_) {}
+    try { el.dispatchEvent(new MouseEvent("click", opts)); } catch (_) {}
+    try { el.click(); } catch (_) {}
+  };
+
+  const clickInteracaoTab = (force) => {
+    const now = Date.now();
+    if (!force && now - interacaoLastClickAt < 50) return false;
+    const link = getContextTabLink();
+    if (!link) return false;
+    interacaoLastClickAt = now;
+    fireTabClick(link);
+    return true;
+  };
+
+  const stopInteracaoRaf = () => {
+    if (interacaoRaf) {
+      try { cancelAnimationFrame(interacaoRaf); } catch (_) {}
+      interacaoRaf = 0;
+    }
+  };
+
+  const tickInteracaoRaf = () => {
+    interacaoRaf = 0;
+    ensureInteracaoTab(true);
+    if (Date.now() <= interacaoBurstUntil) {
+      interacaoRaf = requestAnimationFrame(tickInteracaoRaf);
+    } else {
+      clearPreferMaskIfReady();
+    }
+  };
+
+  const beginInteracaoBurst = (ms = 1800) => {
+    interacaoUserChoseConector = false;
+    // mascara ANTES do Five9 pintar o Conector
+    setPreferInteracaoMask(true);
+    interacaoBurstUntil = Math.max(interacaoBurstUntil, Date.now() + ms);
+    ensureInteracaoTab(true);
+    clickInteracaoTab(true);
+    stopInteracaoRaf();
+    interacaoRaf = requestAnimationFrame(tickInteracaoRaf);
+  };
+
+  const ensureInteracaoTab = (fromBurst) => {
+    try {
+      const key = getActiveChatKey();
+      if (key && key !== interacaoLastChatKey) {
+        interacaoLastChatKey = key;
+        if (!fromBurst) beginInteracaoBurst(2000);
+        else {
+          setPreferInteracaoMask(true);
+          interacaoBurstUntil = Math.max(interacaoBurstUntil, Date.now() + 2000);
+        }
+      }
+
+      if (interacaoUserChoseConector && !fromBurst) {
+        clearPreferMaskIfReady();
+        return;
+      }
+
+      if (!getContextTabLi() && !getConnectorTabLi()) return;
+
+      const connectorOn = isConnectorTabActive() || isConnectorPanelShowing();
+      const contextOn = isContextTabActive();
+
+      if (contextOn && !connectorOn) {
+        clearPreferMaskIfReady();
+        return;
+      }
+
+      if (connectorOn || (fromBurst && !contextOn)) {
+        if (fromBurst) interacaoUserChoseConector = false;
+        setPreferInteracaoMask(true);
+        clickInteracaoTab(!!fromBurst);
+      }
+    } catch (_) {}
+  };
+
+  const looksLikeChatListTarget = (t) => {
+    if (!t || !t.closest) return false;
+    if (
+      t.closest(
+        '[class*="conversation-list"], [class*="ConversationList"], [class*="chat-list"], ' +
+          '[class*="ChatList"], [class*="workitem-list"], [class*="interaction-list"], ' +
+          '[class*="session-list"], [class*="engagement-list"], [aria-label*="Bate-papo" i]'
+      )
+    )
+      return true;
+    try {
+      const el = t.closest("li, button, a, [role='listitem'], [role='option'], div") || t;
+      const r = el.getBoundingClientRect?.();
+      if (r && r.left > 40 && r.right < 420 && r.width < 380) {
+        const txt = ((el.innerText || "") + "").slice(0, 120);
+        if (/(wa|whatsapp|nenhum assunto|sms|agora|min)/i.test(txt)) return true;
+      }
+    } catch (_) {}
+    return false;
+  };
+
+  const onInteracaoPreferPointer = (e) => {
+    try {
+      const t = e.target;
+      if (!t || !t.closest) return;
+
+      if (t.closest('#connector, li[data-id="connector"], a[aria-controls="panel-connector"]')) {
+        if (Date.now() > interacaoBurstUntil) {
+          interacaoUserChoseConector = true;
+          interacaoBurstUntil = 0;
+          setPreferInteracaoMask(false);
+        }
+        return;
+      }
+      if (t.closest('#context, li[data-id="context"], a[aria-controls="panel-context"]')) {
+        interacaoUserChoseConector = false;
+        setPreferInteracaoMask(false);
+        return;
+      }
+
+      if (looksLikeChatListTarget(t)) {
+        // no pointerdown/mousedown: mascara + clique antecipado (antes do paint do Conector)
+        setPreferInteracaoMask(true);
+        beginInteracaoBurst(2200);
+      }
+    } catch (_) {}
+  };
+
+  const onInteracaoMutations = (mutations) => {
+    try {
+      let connectorActivated = false;
+      let contextChanged = false;
+      for (const m of mutations) {
+        const el = m.target;
+        if (!el || el.nodeType !== 1) {
+          if (m.type === "childList") contextChanged = true;
+          continue;
+        }
+        if (el.id === "connector" || el.getAttribute?.("data-id") === "connector") {
+          if (el.classList?.contains("active")) connectorActivated = true;
+          contextChanged = true;
+        } else if (el.id === "context" || el.getAttribute?.("data-id") === "context") {
+          contextChanged = true;
+        } else if (el.id === "panel-connector" || el.id === "panel-context") {
+          contextChanged = true;
+          if (el.id === "panel-connector") connectorActivated = true;
+        } else if (
+          m.type === "attributes" &&
+          (m.attributeName === "class" || m.attributeName === "aria-selected")
+        ) {
+          if (el.closest?.("#connector, #panel-connector")) connectorActivated = true;
+          if (el.closest?.("#context, #connector, #panel-context, #panel-connector")) {
+            contextChanged = true;
+          }
+        } else if (m.type === "childList") {
+          contextChanged = true;
+        }
+      }
+
+      if (connectorActivated && !interacaoUserChoseConector) {
+        setPreferInteracaoMask(true);
+        clickInteracaoTab(true);
+        beginInteracaoBurst(1600);
+        return;
+      }
+      if (contextChanged) ensureInteracaoTab(false);
+    } catch (_) {}
+  };
+
+  const startInteracaoPrefer = () => {
+    stopInteracaoPrefer();
+    ensureFlashStyle();
+    // pointerdown/mousedown pegam a troca de chat antes do click do Five9
+    document.addEventListener("pointerdown", onInteracaoPreferPointer, true);
+    document.addEventListener("mousedown", onInteracaoPreferPointer, true);
+    ensureInteracaoTab(true);
+    interacaoPreferObs = new MutationObserver(onInteracaoMutations);
+    try {
+      if (document.body) {
+        interacaoPreferObs.observe(document.body, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ["class", "aria-selected", "aria-hidden", "style"],
+        });
+      }
+    } catch (_) {}
+    interacaoPollTimer = setInterval(() => ensureInteracaoTab(false), 250);
+  };
+
+  const stopInteracaoPrefer = () => {
+    try {
+      document.removeEventListener("pointerdown", onInteracaoPreferPointer, true);
+      document.removeEventListener("mousedown", onInteracaoPreferPointer, true);
+    } catch (_) {}
+    try {
+      if (interacaoPreferObs) interacaoPreferObs.disconnect();
+    } catch (_) {}
+    interacaoPreferObs = null;
+    if (interacaoPollTimer) clearInterval(interacaoPollTimer);
+    interacaoPollTimer = 0;
+    stopInteracaoRaf();
+    interacaoBurstUntil = 0;
+    interacaoHideUntil = 0;
+    interacaoLastChatKey = "";
+    interacaoUserChoseConector = false;
+    setPreferInteracaoMask(false);
+    try {
+      interacaoFlashStyle?.remove?.();
+    } catch (_) {}
+    interacaoFlashStyle = null;
   };
 
   window.__five9Templates = {
@@ -4335,6 +4823,7 @@
       window.removeEventListener("keydown", onHotkey, true);
       stopAiWatch();
       stopImageDownloadWatch();
+      stopInteracaoPrefer();
       if (mountTimer) clearInterval(mountTimer);
       if (mountObserver) mountObserver.disconnect();
       markTarget(null);
@@ -4376,6 +4865,7 @@
     syncRouteVisibility();
     startAiWatch();
     startImageDownloadWatch();
+    startInteracaoPrefer();
     ensureUpdateFloat();
     renderUpdateUi();
     checkForUpdates(true);
