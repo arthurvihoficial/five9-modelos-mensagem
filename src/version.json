@@ -1,12 +1,12 @@
 {
- "version": "1.5.1",
- "changelog": "Criado uma janela para criação de novos modelos/edição, alinhado alguns card, melhoria no sistema de importação e adicionar sistema de presets para reutilizar badges em outros motorista!",
+ "version": "1.5.2",
+ "changelog": "Baixar arquivos de imagem e vídeos direto pelo chat e chat direto no "Interação" ao abrir um novo chat.",
  "downloadUrl": "https://raw.githubusercontent.com/arthurvihoficial/five9-modelos-mensagem/refs/heads/main/src/five9-modelos.user.js",
  "publishedAt": "2026-09-08",
  "scripts": [
    {
      "id": "modelos",
-     "version": "1.5.1",
+     "version": "1.5.2",
      "downloadUrl": "https://raw.githubusercontent.com/arthurvihoficial/five9-modelos-mensagem/refs/heads/main/src/five9-modelos.user.js"
    },
    {
