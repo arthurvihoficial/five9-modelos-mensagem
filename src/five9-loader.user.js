@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Five9 – Loader (Modelos + Badges)
 // @namespace    https://github.com/local/five9-templates
-// @version      1.1.0
-// @description  Carrega Modelos e Badges Five9 a partir do GitHub!
+// @version      1.1.2
+// @description  Carrega Modelos e Badges Five9 a partir do GitHub. Inclui permissão de download de mídia (nuvetoapps).
 // @author       Arthur Vinícius
 // @match        https://app-atl.five9.com/clients/agent/*
 // @match        *://app-atl.five9.com/*
@@ -13,18 +13,24 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_xmlhttpRequest
+// @grant        GM_download
 // @grant        GM_registerMenuCommand
 // @grant        GM_openInTab
 // @grant        unsafeWindow
 // @connect      raw.githubusercontent.com
 // @connect      github.com
+// @connect      cdn.jsdelivr.net
+// @connect      nuvetoapps.com.br
+// @connect      *.nuvetoapps.com.br
+// @connect      sigmavcimentos.nuvetoapps.com.br
+// @connect      *
 // @run-at       document-idle
 // @noframes
 // ==/UserScript==
 
 (function () {
   'use strict';
-  
+
   var BASE =
     'https://raw.githubusercontent.com/arthurvihoficial/five9-modelos-mensagem/refs/heads/main/src';
   var VERSION_URL = BASE + '/version.json';
@@ -178,7 +184,7 @@
 
     fetchVersionInfo(function (err, info) {
       var modList = resolveModulesFromInfo(err ? null : info);
-      
+      // se veio url avulsa (legado), ainda sincroniza o pacote inteiro
       fetchAllModules(modList, function (err2, results) {
         if (err2) return finish(err2);
         var ids = Object.keys(results);
@@ -196,7 +202,7 @@
           '';
         gmSet(BUNDLE_VER_KEY, String(bundleVer));
         gmSet(DISMISSED_KEY, '');
-        // limpa cache de 1 aquivo
+        // limpa cache legado de 1 arquivo
         try {
           gmSet(LEGACY_SRC_KEY, '');
           gmSet(LEGACY_VER_KEY, '');
@@ -313,6 +319,15 @@
           if (err) alert('Falha ao sincronizar com o GitHub.');
           else alert('Pacote sincronizado' + (ver ? ' (v' + ver + ')' : '') + '. Recarregando…');
         });
+      });
+      GM_registerMenuCommand('Five9: sobre permissões de download', function () {
+        alert(
+          'O download de imagens/vídeos usa o LOADER (não o script Modelos).\n\n' +
+            'No Tampermonkey → Five9 Loader → Configurações → permita:\n' +
+            '• *.nuvetoapps.com.br\n' +
+            '• sigmavcimentos.nuvetoapps.com.br\n\n' +
+            'Se pedir permissão ao baixar, escolha “Sempre permitir”.'
+        );
       });
     } catch (e) {}
 
