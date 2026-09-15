@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Five9 – Modelos de Mensagem
 // @namespace    https://github.com/local/five9-templates
-// @version      1.5.3
+// @version      1.5.4
 // @description  Painel de modelos para Five9 com pastas/tags, busca, sugestão, importação e download de mídia no chat.
 // @author       Arthur Vinícius
 // @match        https://app-atl.five9.com/clients/agent/*
@@ -41,7 +41,7 @@
   const FORM_MODAL_ID = "five9-model-form-modal";
   const TARGET_KEY = "five9_msg_target_hint_v1";
   const DEFAULT_TAG = "Geral";
-  const APP_VERSION = "1.5.3";
+  const APP_VERSION = "1.5.4";
   const AI_MIN_SCORE = 2.2;
   const AI_DRAFT_MIN_SCORE = 1.6;
   const AI_DRAFT_MIN_CHARS = 2;
@@ -58,8 +58,8 @@
       "https://raw.githubusercontent.com/arthurvihoficial/five9-modelos-mensagem/refs/heads/main/src/five9-modelos.user.js",
     downloadUrl:
       "https://raw.githubusercontent.com/arthurvihoficial/five9-modelos-mensagem/refs/heads/main/src/five9-modelos.user.js",
-    checkEveryMs: 2 * 60 * 1000, // revalida a cada 2 min (antes era 6h)
-    pollEveryMs: 90 * 1000,
+    checkEveryMs: 10 * 60 * 1000, // background no máximo a cada 10 min
+    pollEveryMs: 10 * 60 * 1000,
     lastCheckKey: "five9_update_last_check",
     dismissedKey: "five9_update_dismissed", // legado — não usamos mais para esconder
   };
@@ -322,7 +322,8 @@
     return m ? String(m[1]).replace(/^v/i, "").trim() : "";
   };
 
-  const fetchRemoteUpdateInfo = async () => {
+  const fetchRemoteUpdateInfo = async (opts = {}) => {
+    const allowScriptFallback = !!opts.allowScriptFallback;
     const mirrors = UPDATE.versionMirrors || [UPDATE.versionUrl];
     let lastErr = null;
     for (const url of mirrors) {
@@ -333,37 +334,29 @@
       } catch (e) {
         lastErr = e;
       }
+    }
+    // só no clique manual: fallback pesado no .user.js
+    if (allowScriptFallback) {
       try {
-        const info = await fetch(bust(url), { cache: "no-store" }).then((r) => {
-          if (!r.ok) throw new Error("http");
-          return r.json();
-        });
-        const normalized = normalizeRemoteInfo(info);
-        if (normalized?.version) return normalized;
+        const src = await gmGetText(UPDATE.scriptUrl || UPDATE.downloadUrl);
+        const ver = parseVersionFromUserscript(src);
+        if (ver) {
+          return {
+            version: ver,
+            changelog: "Atualização disponível no GitHub",
+            url: UPDATE.downloadUrl,
+          };
+        }
       } catch (e) {
         lastErr = e;
       }
-    }
-    // fallback: lê // @version direto do .user.js no GitHub
-    try {
-      const src = await gmGetText(UPDATE.scriptUrl || UPDATE.downloadUrl);
-      const ver = parseVersionFromUserscript(src);
-      if (ver) {
-        return {
-          version: ver,
-          changelog: "Atualização disponível no GitHub",
-          url: UPDATE.downloadUrl,
-        };
-      }
-    } catch (e) {
-      lastErr = e;
     }
     throw lastErr || new Error("update check failed");
   };
 
   let updatePollTimer = 0;
 
-  const checkForUpdates = (force = false) => {
+  const checkForUpdates = (force = false, notifyUser = false) => {
     if (/SEU_USUARIO/.test(UPDATE.versionUrl)) return;
     const now = Date.now();
     const last = Number(gmGet(UPDATE.lastCheckKey, "0")) || 0;
@@ -372,15 +365,15 @@
 
     const done = (err, info) => {
       if (err) {
-        if (force) setStatus("Não foi possível verificar atualização.", "warn");
-        console.warn("[Five9 Modelos] update check:", err);
+        if (notifyUser) setStatus("Não foi possível verificar atualização.", "warn");
+        else console.warn("[Five9 Modelos] update check:", err);
         return;
       }
       applyRemoteUpdateInfo(info);
-      if (force && remoteUpdate) {
-        setStatus(`Nova versão v${remoteUpdate.version} disponível.`, "warn");
-      } else if (force && !remoteUpdate) {
-        setStatus("Você já está na versão mais recente.", "ok");
+      // status só no clique manual do ↻ — nunca spam automático
+      if (notifyUser) {
+        if (remoteUpdate) setStatus(`Nova versão v${remoteUpdate.version} disponível.`, "warn");
+        else setStatus("Você já está na versão mais recente.", "ok");
       }
     };
 
@@ -388,7 +381,9 @@
     if (loader?.fetchVersionInfo) {
       loader.fetchVersionInfo((err, info) => {
         if (err || !info) {
-          fetchRemoteUpdateInfo().then((n) => done(null, n)).catch((e) => done(e));
+          fetchRemoteUpdateInfo({ allowScriptFallback: notifyUser })
+            .then((n) => done(null, n))
+            .catch((e) => done(e));
           return;
         }
         done(null, info);
@@ -396,23 +391,23 @@
       return;
     }
 
-    fetchRemoteUpdateInfo()
+    fetchRemoteUpdateInfo({ allowScriptFallback: notifyUser })
       .then((info) => done(null, info))
       .catch((e) => done(e));
   };
 
   const startUpdateWatch = () => {
     try {
-      // limpa dismiss legado para TODOS — o aviso volta a aparecer
       gmSet(UPDATE.dismissedKey, "");
     } catch (_) {}
-    checkForUpdates(true);
+    // silencioso no boot / foco / poll
+    checkForUpdates(true, false);
     if (updatePollTimer) clearInterval(updatePollTimer);
-    updatePollTimer = setInterval(() => checkForUpdates(false), UPDATE.pollEveryMs);
-    const onFocus = () => checkForUpdates(true);
+    updatePollTimer = setInterval(() => checkForUpdates(false, false), UPDATE.pollEveryMs);
+    const onFocus = () => checkForUpdates(false, false);
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") checkForUpdates(true);
+      if (document.visibilityState === "visible") checkForUpdates(false, false);
     });
     startUpdateWatch._onFocus = onFocus;
   };
@@ -3596,7 +3591,7 @@
 
     if (act === "check-update") {
       setStatus("Verificando atualização…", "ok");
-      checkForUpdates(true);
+      checkForUpdates(true, true);
       return;
     }
     if (act === "do-update") {
@@ -4174,14 +4169,14 @@
       if (lab) lab.textContent = "…";
     }
 
-    const finishOk = (mode) => {
+    const finishOk = () => {
       markMediaDownloaded(url);
       if (!btn) return;
       btn.disabled = false;
       btn.classList.add("is-ok");
-      btn.title = mode === "tab" ? "Aberto em nova aba" : "Baixado";
+      btn.title = "Baixado";
       const lab = btn.querySelector(".f9-dl-label");
-      if (lab) lab.textContent = mode === "tab" ? "Aberto" : "Baixado";
+      if (lab) lab.textContent = "Baixado";
       setTimeout(() => {
         btn.classList.remove("is-ok");
         btn.title = label;
@@ -4199,65 +4194,75 @@
         btn.classList.remove("is-err");
         btn.title = label;
         if (lab) lab.textContent = "Baixar";
-      }, 3200);
+      }, 3500);
     };
 
-    const looksLikeHtmlError = (blob, headers) => {
-      const type = String((blob && blob.type) || headers || "").toLowerCase();
-      return /text\/html|application\/xhtml/.test(type);
+    const sniffMime = (bytes) => {
+      if (!bytes || bytes.length < 12) return "";
+      const b = bytes;
+      if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+      if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
+      if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) return "image/gif";
+      if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57)
+        return "image/webp";
+      if (b[4] === 0x66 && b[5] === 0x74 && b[6] === 0x79 && b[7] === 0x70) return "video/mp4";
+      if (b[0] === 0x00 && b[1] === 0x00 && b[2] === 0x00 && (b[3] === 0x14 || b[3] === 0x18 || b[3] === 0x20))
+        return "video/mp4";
+      // HTML?
+      let head = "";
+      for (let i = 0; i < Math.min(48, b.length); i++) head += String.fromCharCode(b[i]);
+      head = head.toLowerCase();
+      if (head.includes("<!doctype") || head.includes("<html") || head.includes("<head")) return "text/html";
+      return "";
     };
 
-    const viaXhrBlob = () =>
+    const saveArrayBuffer = (buf, hintType) => {
+      const bytes = new Uint8Array(buf);
+      if (!bytes.byteLength) throw new Error("vazio");
+      const sniffed = sniffMime(bytes);
+      if (sniffed === "text/html") throw new Error("Resposta HTML");
+      const type =
+        sniffed ||
+        hintType ||
+        (mediaKindFromUrl(url) === "video" ? "video/mp4" : "image/jpeg");
+      const blob = new Blob([bytes], { type });
+      triggerBlobDownload(blob, filenameFromUrl(url, type));
+      return "blob";
+    };
+
+    const viaXhrBuffer = (withReferer) =>
       new Promise((resolve, reject) => {
         if (typeof GM_xmlhttpRequest !== "function") {
           reject(new Error("GM_xmlhttpRequest indisponível"));
           return;
         }
-        let hostRef = "";
-        try {
-          hostRef = new URL(url).origin + "/";
-        } catch (_) {}
+        const headers = {
+          Accept: "*/*",
+        };
+        if (withReferer) {
+          try {
+            headers.Referer = new URL(url).origin + "/";
+          } catch (_) {}
+        }
         GM_xmlhttpRequest({
           method: "GET",
           url,
-          responseType: "blob",
+          responseType: "arraybuffer",
           timeout: 120000,
-          // envia cookies do domínio do anexo (nuveto) — essencial após update do TM
           anonymous: false,
-          headers: {
-            Accept: "image/avif,image/webp,image/apng,image/*,video/*,*/*;q=0.8",
-            Referer: hostRef || location.href,
-          },
+          headers,
           onload: (res) => {
             try {
               if (res.status < 200 || res.status >= 300) {
                 reject(new Error("HTTP " + res.status));
                 return;
               }
-              const blob = res.response;
-              if (!blob || !(blob.size > 0)) {
+              const buf = res.response;
+              if (!buf) {
                 reject(new Error("Resposta vazia"));
                 return;
               }
-              // HTML (login/404) não é mídia — tenta próximo método
-              if (looksLikeHtmlError(blob, res.responseHeaders) && blob.size < 200000) {
-                reject(new Error("Resposta HTML"));
-                return;
-              }
-              const type = String(blob.type || "").toLowerCase();
-              if (
-                type &&
-                !/image\//.test(type) &&
-                !/video\//.test(type) &&
-                !/octet-stream|binary|application\/mp4|application\/octet/.test(type) &&
-                !looksLikeMediaUrl(url) &&
-                !ANEXOS_RE.test(url)
-              ) {
-                reject(new Error("Não é mídia"));
-                return;
-              }
-              triggerBlobDownload(blob, filenameFromUrl(url, blob.type));
-              resolve("blob");
+              resolve(saveArrayBuffer(buf, ""));
             } catch (e) {
               reject(e);
             }
@@ -4281,60 +4286,83 @@
           else reject(err || new Error("GM_download falhou"));
         };
         try {
+          // API objeto (TM / VM)
           GM_download({
             url,
             name: fileName,
             saveAs: false,
             onload: () => done(true),
-            onerror: (e) => done(false, e || new Error("GM_download falhou")),
+            onerror: (e) => {
+              const code = String(e?.error || e?.details || e || "");
+              done(false, new Error(code || "GM_download falhou"));
+            },
             ontimeout: () => done(false, new Error("timeout")),
           });
-        } catch (e) {
-          done(false, e);
-        }
-      });
-
-    const viaAnchorOrTab = () =>
-      new Promise((resolve) => {
-        try {
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = fileName;
-          a.target = "_blank";
-          a.rel = "noopener noreferrer";
-          a.style.display = "none";
-          document.body.appendChild(a);
-          a.click();
-          setTimeout(() => a.remove(), 0);
-        } catch (_) {}
-        try {
-          if (typeof GM_openInTab === "function") {
-            GM_openInTab(url, { active: true, insert: true, setParent: true });
-          } else {
-            window.open(url, "_blank", "noopener");
-          }
         } catch (_) {
           try {
-            window.open(url, "_blank");
-          } catch (__) {}
+            // API posicional legada
+            GM_download(url, fileName);
+            setTimeout(() => done(true), 600);
+          } catch (e2) {
+            done(false, e2);
+          }
         }
-        resolve("tab");
       });
 
-    // 1) XHR com cookies (mais confiável p/ nuveto) → 2) GM_download → 3) abrir aba
-    viaXhrBlob()
+    const viaCanvasFromDom = () =>
+      new Promise((resolve, reject) => {
+        try {
+          const clean = String(url).split("?")[0];
+          const imgs = Array.from(document.querySelectorAll("img[src], img[currentSrc]"));
+          const img =
+            imgs.find((i) => (i.currentSrc || i.src) === url) ||
+            imgs.find((i) => (i.currentSrc || i.src || "").startsWith(clean)) ||
+            null;
+          if (!img || !img.naturalWidth) {
+            reject(new Error("sem img no DOM"));
+            return;
+          }
+          const c = document.createElement("canvas");
+          c.width = img.naturalWidth;
+          c.height = img.naturalHeight;
+          c.getContext("2d").drawImage(img, 0, 0);
+          c.toBlob(
+            (blob) => {
+              if (!blob) {
+                reject(new Error("canvas vazio"));
+                return;
+              }
+              triggerBlobDownload(blob, filenameFromUrl(url, blob.type || "image/jpeg"));
+              resolve("canvas");
+            },
+            "image/jpeg",
+            0.92
+          );
+        } catch (e) {
+          reject(e);
+        }
+      });
+
+    // Sem abrir nova aba: tenta baixar de verdade para o disco
+    viaXhrBuffer(false)
       .catch((err) => {
         console.warn("[Five9 Modelos] download xhr:", err);
+        return viaXhrBuffer(true);
+      })
+      .catch((err) => {
+        console.warn("[Five9 Modelos] download xhr+ref:", err);
         return viaGmDownload();
       })
       .catch((err) => {
         console.warn("[Five9 Modelos] download gm:", err);
-        return viaAnchorOrTab();
+        return viaCanvasFromDom();
       })
-      .then((mode) => finishOk(mode === "tab" ? "tab" : "file"))
+      .then(() => finishOk())
       .catch((err) => {
         console.warn("[Five9 Modelos] download mídia:", err);
-        finishErr("Falha ao baixar — permita o domínio nuvetoapps no Tampermonkey");
+        finishErr(
+          "Falha ao baixar. No Tampermonkey → script → Permissões, permita *.nuvetoapps.com.br e recarregue."
+        );
       });
   };
 
