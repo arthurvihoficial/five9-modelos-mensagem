@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Five9 – Modelos de Mensagem
 // @namespace    https://github.com/local/five9-templates
-// @version      1.5.2
+// @version      1.5.3
 // @description  Painel de modelos para Five9 com pastas/tags, busca, sugestão, importação e download de mídia no chat.
 // @author       Arthur Vinícius
 // @match        https://app-atl.five9.com/clients/agent/*
@@ -20,6 +20,10 @@
 // @grant        unsafeWindow
 // @connect      raw.githubusercontent.com
 // @connect      github.com
+// @connect      cdn.jsdelivr.net
+// @connect      nuvetoapps.com.br
+// @connect      *.nuvetoapps.com.br
+// @connect      sigmavcimentos.nuvetoapps.com.br
 // @connect      *
 // @run-at       document-idle
 // ==/UserScript==
@@ -37,7 +41,7 @@
   const FORM_MODAL_ID = "five9-model-form-modal";
   const TARGET_KEY = "five9_msg_target_hint_v1";
   const DEFAULT_TAG = "Geral";
-  const APP_VERSION = "1.5.2";
+  const APP_VERSION = "1.5.3";
   const AI_MIN_SCORE = 2.2;
   const AI_DRAFT_MIN_SCORE = 1.6;
   const AI_DRAFT_MIN_CHARS = 2;
@@ -46,11 +50,18 @@
   const UPDATE = {
     versionUrl:
       "https://raw.githubusercontent.com/arthurvihoficial/five9-modelos-mensagem/refs/heads/main/src/version.json",
+    versionMirrors: [
+      "https://raw.githubusercontent.com/arthurvihoficial/five9-modelos-mensagem/refs/heads/main/src/version.json",
+      "https://cdn.jsdelivr.net/gh/arthurvihoficial/five9-modelos-mensagem@main/src/version.json",
+    ],
+    scriptUrl:
+      "https://raw.githubusercontent.com/arthurvihoficial/five9-modelos-mensagem/refs/heads/main/src/five9-modelos.user.js",
     downloadUrl:
       "https://raw.githubusercontent.com/arthurvihoficial/five9-modelos-mensagem/refs/heads/main/src/five9-modelos.user.js",
-    checkEveryMs: 6 * 60 * 60 * 1000,
+    checkEveryMs: 2 * 60 * 1000, // revalida a cada 2 min (antes era 6h)
+    pollEveryMs: 90 * 1000,
     lastCheckKey: "five9_update_last_check",
-    dismissedKey: "five9_update_dismissed",
+    dismissedKey: "five9_update_dismissed", // legado — não usamos mais para esconder
   };
 
   let remoteUpdate = null;
@@ -140,24 +151,28 @@
     if (!remoteUpdate) return "";
     return (
       `Nova versão disponível: v${remoteUpdate.version} (sua: v${APP_VERSION})` +
-      (remoteUpdate.changelog ? ` — ${remoteUpdate.changelog}` : "")
+      (remoteUpdate.changelog ? ` — ${remoteUpdate.changelog}` : "") +
+      " · Atualize para continuar."
     );
   };
 
   const ensureUpdateFloat = () => {
     let el = document.getElementById(UPDATE_FLOAT_ID);
-    if (el) return el;
+    if (el) {
+      // remove “Depois” de instâncias antigas já montadas na página
+      el.querySelectorAll('[data-upd-act="dismiss"]').forEach((b) => b.remove());
+      return el;
+    }
     el = document.createElement("div");
     el.id = UPDATE_FLOAT_ID;
     el.innerHTML = `
       <div class="ft-upd-inner">
         <div class="ft-upd-text">
-          <div class="ft-upd-title">Atualização · Modelos Five9</div>
+          <div class="ft-upd-title">Atualização obrigatória · Modelos Five9</div>
           <div class="ft-upd-msg" data-el="upd-msg"></div>
         </div>
         <div class="ft-upd-actions">
           <button type="button" data-upd-act="apply">Atualizar agora</button>
-          <button type="button" class="secondary" data-upd-act="dismiss">Depois</button>
         </div>
       </div>`;
     document.body.appendChild(el);
@@ -166,16 +181,14 @@
       if (!btn || !el.contains(btn)) return;
       e.preventDefault();
       e.stopPropagation();
-      const act = btn.dataset.updAct;
-      if (act === "apply") openScriptUpdate();
-      if (act === "dismiss") dismissUpdateUi();
+      if (btn.dataset.updAct === "apply") openScriptUpdate();
     });
     return el;
   };
 
   const renderUpdateUi = () => {
-    let show = !!(remoteUpdate && versionsDiffer(remoteUpdate.version, APP_VERSION));
-    if (show && gmGet(UPDATE.dismissedKey, "") === remoteUpdate.version) show = false;
+    // Sem dismiss: fica visível até a versão local == remota
+    const show = !!(remoteUpdate && versionsDiffer(remoteUpdate.version, APP_VERSION));
     const msg = updateMessageText();
     const floatEl = ensureUpdateFloat();
     floatEl.classList.toggle("is-show", !!show);
@@ -184,28 +197,54 @@
     const bar = document.querySelector(`#${PANEL_ID} .ft-update-bar`);
     if (bar) {
       bar.hidden = !show;
+      bar.querySelectorAll('[data-act="dismiss-update"]').forEach((b) => b.remove());
       const barMsg = bar.querySelector('[data-el="upd-bar-msg"]');
       if (barMsg && show) barMsg.textContent = msg;
     }
   };
 
-  const dismissUpdateUi = () => {
-    if (remoteUpdate?.version) gmSet(UPDATE.dismissedKey, remoteUpdate.version);
-    renderUpdateUi();
+  const normalizeRemoteInfo = (info) => {
+    if (!info || typeof info !== "object") return null;
+    let version = info.version;
+    let changelog = info.changelog || "";
+    let downloadUrl = info.downloadUrl || info.url || UPDATE.downloadUrl;
+    try {
+      if (Array.isArray(info.scripts)) {
+        const m = info.scripts.find(
+          (s) => s && (s.id === "modelos" || s.id === "five9-modelos" || /modelo/i.test(s.id || ""))
+        );
+        if (m) {
+          if (m.version) version = m.version;
+          if (m.changelog) changelog = m.changelog;
+          if (m.downloadUrl) downloadUrl = m.downloadUrl;
+        }
+      }
+    } catch (_) {}
+    if (!version) return null;
+    return {
+      version: String(version).replace(/^v/i, "").trim(),
+      changelog: String(changelog || "").slice(0, 140),
+      url: String(downloadUrl || UPDATE.downloadUrl),
+    };
   };
 
   const applyRemoteUpdateInfo = (info) => {
-    if (!info?.version) return;
-    if (!versionsDiffer(info.version, APP_VERSION)) {
+    const normalized = normalizeRemoteInfo(info);
+    if (!normalized?.version) return;
+    if (!versionsDiffer(normalized.version, APP_VERSION)) {
       remoteUpdate = null;
+      // limpa dismiss legado quando já está atualizado
+      try {
+        gmSet(UPDATE.dismissedKey, "");
+      } catch (_) {}
       renderUpdateUi();
       return;
     }
-    remoteUpdate = {
-      version: String(info.version),
-      changelog: String(info.changelog || "").slice(0, 120),
-      url: String(info.downloadUrl || UPDATE.downloadUrl),
-    };
+    remoteUpdate = normalized;
+    // nunca esconder por dismiss antigo
+    try {
+      gmSet(UPDATE.dismissedKey, "");
+    } catch (_) {}
     renderUpdateUi();
   };
 
@@ -227,8 +266,102 @@
     } catch (_) {
       window.open(url, "_blank");
     }
-    setStatus("Confirme a atualização no Tampermonkey (ou instale o loader).", "warn");
+    setStatus("Confirme a atualização no Tampermonkey e recarregue o Five9.", "warn");
   };
+
+  const bust = (url) =>
+    url + (url.includes("?") ? "&" : "?") + "t=" + Date.now() + "&r=" + Math.random().toString(36).slice(2, 8);
+
+  const gmGetJson = (url) =>
+    new Promise((resolve, reject) => {
+      if (typeof GM_xmlhttpRequest !== "function") {
+        reject(new Error("no GM_xmlhttpRequest"));
+        return;
+      }
+      GM_xmlhttpRequest({
+        method: "GET",
+        url: bust(url),
+        headers: {
+          Accept: "application/json,text/plain,*/*",
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+        },
+        onload: (res) => {
+          try {
+            if (res.status < 200 || res.status >= 300) throw new Error("http " + res.status);
+            resolve(JSON.parse(res.responseText));
+          } catch (e) {
+            reject(e);
+          }
+        },
+        onerror: () => reject(new Error("network")),
+        ontimeout: () => reject(new Error("timeout")),
+      });
+    });
+
+  const gmGetText = (url) =>
+    new Promise((resolve, reject) => {
+      if (typeof GM_xmlhttpRequest !== "function") {
+        reject(new Error("no GM_xmlhttpRequest"));
+        return;
+      }
+      GM_xmlhttpRequest({
+        method: "GET",
+        url: bust(url),
+        headers: { "Cache-Control": "no-cache", Pragma: "no-cache" },
+        onload: (res) => {
+          if (res.status < 200 || res.status >= 300) reject(new Error("http " + res.status));
+          else resolve(String(res.responseText || ""));
+        },
+        onerror: () => reject(new Error("network")),
+      });
+    });
+
+  const parseVersionFromUserscript = (source) => {
+    const m = String(source || "").match(/\/\/\s*@version\s+([^\s]+)/i);
+    return m ? String(m[1]).replace(/^v/i, "").trim() : "";
+  };
+
+  const fetchRemoteUpdateInfo = async () => {
+    const mirrors = UPDATE.versionMirrors || [UPDATE.versionUrl];
+    let lastErr = null;
+    for (const url of mirrors) {
+      try {
+        const info = await gmGetJson(url);
+        const normalized = normalizeRemoteInfo(info);
+        if (normalized?.version) return normalized;
+      } catch (e) {
+        lastErr = e;
+      }
+      try {
+        const info = await fetch(bust(url), { cache: "no-store" }).then((r) => {
+          if (!r.ok) throw new Error("http");
+          return r.json();
+        });
+        const normalized = normalizeRemoteInfo(info);
+        if (normalized?.version) return normalized;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    // fallback: lê // @version direto do .user.js no GitHub
+    try {
+      const src = await gmGetText(UPDATE.scriptUrl || UPDATE.downloadUrl);
+      const ver = parseVersionFromUserscript(src);
+      if (ver) {
+        return {
+          version: ver,
+          changelog: "Atualização disponível no GitHub",
+          url: UPDATE.downloadUrl,
+        };
+      }
+    } catch (e) {
+      lastErr = e;
+    }
+    throw lastErr || new Error("update check failed");
+  };
+
+  let updatePollTimer = 0;
 
   const checkForUpdates = (force = false) => {
     if (/SEU_USUARIO/.test(UPDATE.versionUrl)) return;
@@ -240,42 +373,58 @@
     const done = (err, info) => {
       if (err) {
         if (force) setStatus("Não foi possível verificar atualização.", "warn");
+        console.warn("[Five9 Modelos] update check:", err);
         return;
       }
       applyRemoteUpdateInfo(info);
+      if (force && remoteUpdate) {
+        setStatus(`Nova versão v${remoteUpdate.version} disponível.`, "warn");
+      } else if (force && !remoteUpdate) {
+        setStatus("Você já está na versão mais recente.", "ok");
+      }
     };
 
     const loader = getLoaderApi();
     if (loader?.fetchVersionInfo) {
-      loader.fetchVersionInfo(done);
-      return;
-    }
-    if (typeof GM_xmlhttpRequest === "function") {
-      GM_xmlhttpRequest({
-        method: "GET",
-        url: UPDATE.versionUrl + (UPDATE.versionUrl.includes("?") ? "&" : "?") + "t=" + now,
-        headers: { Accept: "application/json" },
-        onload: (res) => {
-          try {
-            if (res.status < 200 || res.status >= 300) throw new Error("http");
-            done(null, JSON.parse(res.responseText));
-          } catch (e) {
-            done(e);
-          }
-        },
-        onerror: () => done(new Error("network")),
+      loader.fetchVersionInfo((err, info) => {
+        if (err || !info) {
+          fetchRemoteUpdateInfo().then((n) => done(null, n)).catch((e) => done(e));
+          return;
+        }
+        done(null, info);
       });
       return;
     }
-    fetch(UPDATE.versionUrl + (UPDATE.versionUrl.includes("?") ? "&" : "?") + "t=" + now, {
-      cache: "no-store",
-    })
-      .then((r) => {
-        if (!r.ok) throw new Error("http");
-        return r.json();
-      })
+
+    fetchRemoteUpdateInfo()
       .then((info) => done(null, info))
       .catch((e) => done(e));
+  };
+
+  const startUpdateWatch = () => {
+    try {
+      // limpa dismiss legado para TODOS — o aviso volta a aparecer
+      gmSet(UPDATE.dismissedKey, "");
+    } catch (_) {}
+    checkForUpdates(true);
+    if (updatePollTimer) clearInterval(updatePollTimer);
+    updatePollTimer = setInterval(() => checkForUpdates(false), UPDATE.pollEveryMs);
+    const onFocus = () => checkForUpdates(true);
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") checkForUpdates(true);
+    });
+    startUpdateWatch._onFocus = onFocus;
+  };
+
+  const stopUpdateWatch = () => {
+    if (updatePollTimer) clearInterval(updatePollTimer);
+    updatePollTimer = 0;
+    try {
+      if (startUpdateWatch._onFocus) {
+        window.removeEventListener("focus", startUpdateWatch._onFocus);
+      }
+    } catch (_) {}
   };
 
   const loadTags = () => {
@@ -1659,8 +1808,7 @@
    <div class="ft-update-bar" hidden>
      <div data-el="upd-bar-msg">Nova versão disponível</div>
      <div class="ft-upd-actions">
-       <button type="button" data-act="do-update">Usar esta versão</button>
-       <button type="button" class="secondary" data-act="dismiss-update">Depois</button>
+       <button type="button" data-act="do-update">Atualizar agora</button>
      </div>
    </div>
    <div class="ft-body">
@@ -3455,10 +3603,6 @@
       openScriptUpdate();
       return;
     }
-    if (act === "dismiss-update") {
-      dismissUpdateUi();
-      return;
-    }
 
     if (act === "create-tag") {
       const res = await askConfirm({
@@ -3771,7 +3915,7 @@
     });
   })();
 
-  /* Download de mídia (imagem/vídeo) no chat */
+  /* ========== Download rápido de mídia (imagem/vídeo) no chat ========== */
   const IMG_DL_ICON = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v12m0 0l4-4m-4 4l-4-4M5 19h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   const IMAGE_EXT_RE =
     /\.(jpe?g|png|gif|webp|bmp|svg|avif|heic|heif|jfif|tif{1,2})(?:$|[?#])/i;
@@ -3784,6 +3928,7 @@
   const NOT_MEDIA_HOST_RE =
     /(maps\.google|google\.com\/maps|youtube\.com|youtu\.be|vimeo\.com|facebook\.com\/(?:watch|reel)|instagram\.com\/(?:p|reel)|tiktok\.com|linkedin\.com|wa\.me|api\.whatsapp\.com|tel:|mailto:)/i;
   const ANEXOS_RE = /\/anexos\//i;
+  // Só listas/painéis claros — evitar termos genéricos que existem no chat
   const SIDEBAR_RE =
     /(conversation-list|chat-list|session-list|interaction-list|contact-list|preview-list|workitem-list|engagement-list|inbox-list|queue-list|my-interactions|active-interactions|left-rail|left-panel|side-panel|workitem-card|interaction-card)/i;
   const PREVIEW_CARD_TEXT_RE =
@@ -4020,6 +4165,7 @@
   const downloadImageUrl = (url, btn) => {
     if (!url) return;
     const label = dlLabelFor(url);
+    const fileName = filenameFromUrl(url);
     if (btn) {
       btn.disabled = true;
       btn.classList.remove("is-ok", "is-err");
@@ -4028,14 +4174,14 @@
       if (lab) lab.textContent = "…";
     }
 
-    const finishOk = () => {
+    const finishOk = (mode) => {
       markMediaDownloaded(url);
       if (!btn) return;
       btn.disabled = false;
       btn.classList.add("is-ok");
-      btn.title = "Baixado";
+      btn.title = mode === "tab" ? "Aberto em nova aba" : "Baixado";
       const lab = btn.querySelector(".f9-dl-label");
-      if (lab) lab.textContent = "Baixado";
+      if (lab) lab.textContent = mode === "tab" ? "Aberto" : "Baixado";
       setTimeout(() => {
         btn.classList.remove("is-ok");
         btn.title = label;
@@ -4053,28 +4199,13 @@
         btn.classList.remove("is-err");
         btn.title = label;
         if (lab) lab.textContent = "Baixar";
-      }, 2500);
+      }, 3200);
     };
 
-    const viaGmDownload = () =>
-      new Promise((resolve, reject) => {
-        if (typeof GM_download !== "function") {
-          reject(new Error("GM_download indisponível"));
-          return;
-        }
-        try {
-          GM_download({
-            url,
-            name: filenameFromUrl(url),
-            saveAs: false,
-            onload: () => resolve(true),
-            onerror: (e) => reject(e || new Error("GM_download falhou")),
-            ontimeout: () => reject(new Error("timeout")),
-          });
-        } catch (e) {
-          reject(e);
-        }
-      });
+    const looksLikeHtmlError = (blob, headers) => {
+      const type = String((blob && blob.type) || headers || "").toLowerCase();
+      return /text\/html|application\/xhtml/.test(type);
+    };
 
     const viaXhrBlob = () =>
       new Promise((resolve, reject) => {
@@ -4082,11 +4213,21 @@
           reject(new Error("GM_xmlhttpRequest indisponível"));
           return;
         }
+        let hostRef = "";
+        try {
+          hostRef = new URL(url).origin + "/";
+        } catch (_) {}
         GM_xmlhttpRequest({
           method: "GET",
           url,
           responseType: "blob",
           timeout: 120000,
+          // envia cookies do domínio do anexo (nuveto) — essencial após update do TM
+          anonymous: false,
+          headers: {
+            Accept: "image/avif,image/webp,image/apng,image/*,video/*,*/*;q=0.8",
+            Referer: hostRef || location.href,
+          },
           onload: (res) => {
             try {
               if (res.status < 200 || res.status >= 300) {
@@ -4094,24 +4235,29 @@
                 return;
               }
               const blob = res.response;
-              if (!blob) {
+              if (!blob || !(blob.size > 0)) {
                 reject(new Error("Resposta vazia"));
                 return;
               }
-              const type = String(blob.type || res.responseHeaders || "").toLowerCase();
+              // HTML (login/404) não é mídia — tenta próximo método
+              if (looksLikeHtmlError(blob, res.responseHeaders) && blob.size < 200000) {
+                reject(new Error("Resposta HTML"));
+                return;
+              }
+              const type = String(blob.type || "").toLowerCase();
               if (
                 type &&
                 !/image\//.test(type) &&
                 !/video\//.test(type) &&
-                !/octet-stream|binary|application\/mp4/.test(type)
+                !/octet-stream|binary|application\/mp4|application\/octet/.test(type) &&
+                !looksLikeMediaUrl(url) &&
+                !ANEXOS_RE.test(url)
               ) {
-                if (!looksLikeMediaUrl(url)) {
-                  reject(new Error("Não é mídia"));
-                  return;
-                }
+                reject(new Error("Não é mídia"));
+                return;
               }
               triggerBlobDownload(blob, filenameFromUrl(url, blob.type));
-              resolve(true);
+              resolve("blob");
             } catch (e) {
               reject(e);
             }
@@ -4121,12 +4267,74 @@
         });
       });
 
-    viaGmDownload()
-      .catch(() => viaXhrBlob())
-      .then(finishOk)
+    const viaGmDownload = () =>
+      new Promise((resolve, reject) => {
+        if (typeof GM_download !== "function") {
+          reject(new Error("GM_download indisponível"));
+          return;
+        }
+        let settled = false;
+        const done = (ok, err) => {
+          if (settled) return;
+          settled = true;
+          if (ok) resolve("gm");
+          else reject(err || new Error("GM_download falhou"));
+        };
+        try {
+          GM_download({
+            url,
+            name: fileName,
+            saveAs: false,
+            onload: () => done(true),
+            onerror: (e) => done(false, e || new Error("GM_download falhou")),
+            ontimeout: () => done(false, new Error("timeout")),
+          });
+        } catch (e) {
+          done(false, e);
+        }
+      });
+
+    const viaAnchorOrTab = () =>
+      new Promise((resolve) => {
+        try {
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = fileName;
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          a.style.display = "none";
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => a.remove(), 0);
+        } catch (_) {}
+        try {
+          if (typeof GM_openInTab === "function") {
+            GM_openInTab(url, { active: true, insert: true, setParent: true });
+          } else {
+            window.open(url, "_blank", "noopener");
+          }
+        } catch (_) {
+          try {
+            window.open(url, "_blank");
+          } catch (__) {}
+        }
+        resolve("tab");
+      });
+
+    // 1) XHR com cookies (mais confiável p/ nuveto) → 2) GM_download → 3) abrir aba
+    viaXhrBlob()
+      .catch((err) => {
+        console.warn("[Five9 Modelos] download xhr:", err);
+        return viaGmDownload();
+      })
+      .catch((err) => {
+        console.warn("[Five9 Modelos] download gm:", err);
+        return viaAnchorOrTab();
+      })
+      .then((mode) => finishOk(mode === "tab" ? "tab" : "file"))
       .catch((err) => {
         console.warn("[Five9 Modelos] download mídia:", err);
-        finishErr("Falha ao baixar");
+        finishErr("Falha ao baixar — permita o domínio nuvetoapps no Tampermonkey");
       });
   };
 
@@ -4439,7 +4647,7 @@
     });
   };
 
-  /* aba INTERAÇÃO (em vez de CONECTOR) */
+  /* ── Preferir aba INTERAÇÃO (em vez de CONECTOR) ─────────── */
   /* Five9 tabs:
        Interação → li#context > a.tt[aria-controls="panel-context"]
        Conector  → li#connector > a.tt[aria-controls="panel-connector"]
@@ -4762,6 +4970,7 @@
       }
 
       if (connectorActivated && !interacaoUserChoseConector) {
+        // síncrono: tenta trocar ainda neste frame, antes do paint
         setPreferInteracaoMask(true);
         clickInteracaoTab(true);
         beginInteracaoBurst(1600);
@@ -4824,6 +5033,7 @@
       stopAiWatch();
       stopImageDownloadWatch();
       stopInteracaoPrefer();
+      stopUpdateWatch();
       if (mountTimer) clearInterval(mountTimer);
       if (mountObserver) mountObserver.disconnect();
       markTarget(null);
@@ -4834,6 +5044,9 @@
       modal.remove();
       toast.remove();
       formModal.remove();
+      try {
+        document.getElementById(UPDATE_FLOAT_ID)?.remove();
+      } catch (_) {}
       delete window.__five9Templates;
     },
     focusSearch() {
@@ -4866,9 +5079,7 @@
     startAiWatch();
     startImageDownloadWatch();
     startInteracaoPrefer();
-    ensureUpdateFloat();
-    renderUpdateUi();
-    checkForUpdates(true);
+    startUpdateWatch();
     if (!isChatRoute()) {
       setStatus("", "");
     } else if (initialMode === "docked") {
