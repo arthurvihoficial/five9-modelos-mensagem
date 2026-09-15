@@ -1,12 +1,12 @@
 {
- "version": "1.5.2",
- "changelog": "Baixar arquivos de imagem e vídeos direto pelo chat e chat direto no Interação ao abrir um novo chat.",
+ "version": "1.5.3",
+ "changelog": "Correção no sistema de download de imagens/vídeos!",
  "downloadUrl": "https://raw.githubusercontent.com/arthurvihoficial/five9-modelos-mensagem/refs/heads/main/src/five9-modelos.user.js",
  "publishedAt": "2026-09-08",
  "scripts": [
    {
      "id": "modelos",
-     "version": "1.5.2",
+     "version": "1.5.3",
      "downloadUrl": "https://raw.githubusercontent.com/arthurvihoficial/five9-modelos-mensagem/refs/heads/main/src/five9-modelos.user.js"
    },
    {
