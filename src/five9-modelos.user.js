@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Five9 – Modelos de Mensagem
 // @namespace    https://github.com/local/five9-templates
-// @version      26.9.3
+// @version      26.9.4
 // @description  Painel de modelos Five9: pastas, sugestão, download, player, preview e gravação de áudio na Interação.
 // @author       Arthur Vinícius
 // @match        https://app-atl.five9.com/clients/agent/*
@@ -41,7 +41,7 @@
   const FORM_MODAL_ID = "five9-model-form-modal";
   const TARGET_KEY = "five9_msg_target_hint_v1";
   const DEFAULT_TAG = "Geral";
-  const APP_VERSION = "26.9.3";
+  const APP_VERSION = "26.9.4";
   const AI_MIN_SCORE = 2.2;
   const AI_DRAFT_MIN_SCORE = 1.6;
   const AI_DRAFT_MIN_CHARS = 2;
@@ -2015,13 +2015,32 @@
      box-sizing: border-box;
      margin: 4px 0 2px;
    }
-   /* Áudio enviado pelo agente: fica à esquerda; só o card/.content fica azul.
-      O reprodutor permanece no visual padrão (igual ao do motorista). */
-   .message-container.f9-agent-audio-out [id^="agent."] > .content,
-   .message-container.f9-agent-audio-out .content {
-     background: #1e4b8c !important;
-     color: #f8fafc !important;
-     border-radius: 10px !important;
+   /* Áudio do usuário/agente: mesmo card/posição; só os botões ficam amarelos */
+   .f9-audio-host[data-dir="out"] .f9-audio-play {
+     background: #eab308;
+     color: #1c1917;
+     box-shadow: 0 2px 6px rgba(202, 138, 4, 0.35);
+   }
+   .f9-audio-host[data-dir="out"] .f9-audio-seek::-webkit-slider-thumb {
+     background: #eab308;
+     border-color: #fffbeb;
+   }
+   .f9-audio-host[data-dir="out"] .f9-audio-seek::-moz-range-thumb {
+     background: #eab308;
+     border-color: #fffbeb;
+   }
+   .f9-audio-host[data-dir="out"] .f9-audio-open {
+     border-color: #f6e05e;
+     color: #a16207;
+   }
+   .f9-audio-host[data-dir="out"] .f9-audio-open:hover {
+     background: #fef9c3;
+     border-color: #eab308;
+     color: #854d0e;
+   }
+   .f9-audio-host[data-dir="out"] .f9-audio-player[data-state="playing"] {
+     border-color: #f5d76e;
+     box-shadow: 0 0 0 3px rgba(234, 179, 8, 0.16);
    }
    /* NÃO forçar display/width em pais genéricos — isso empurrava a TextArea */
    a.f9-audio-hidden-link {
@@ -6602,19 +6621,17 @@
       if (!host) return;
       const dir = detectAudioMessageDir(anchorEl, bubble);
       host.setAttribute("data-dir", dir);
-      // reprodutor sempre no visual/padrão; só o card (.content) fica azul quando out
       const titleEl = host.querySelector(".f9-audio-title");
       if (titleEl && !/carregando|falha/i.test(titleEl.textContent || "")) {
         titleEl.textContent = "Áudio";
       }
+      // limpa classe antiga do card azul (versões anteriores)
       try {
         const container =
           host.closest?.(".message-container") ||
           bubble?.closest?.(".message-container") ||
           findFive9MessageActorRoot(host)?.closest?.(".message-container");
-        if (container) {
-          container.classList.toggle("f9-agent-audio-out", dir === "out");
-        }
+        container?.classList?.remove("f9-agent-audio-out");
       } catch (_) {}
     };
 
