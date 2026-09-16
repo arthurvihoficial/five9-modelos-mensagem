@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Five9 – Modelos de Mensagem
 // @namespace    https://github.com/local/five9-templates
-// @version      1.5.4
-// @description  Painel de modelos para Five9 com pastas/tags, busca, sugestão, importação e download de mídia no chat.
+// @version      26.9.3
+// @description  Painel de modelos Five9: pastas, sugestão, download, player, preview e gravação de áudio na Interação.
 // @author       Arthur Vinícius
 // @match        https://app-atl.five9.com/clients/agent/*
 // @match        *://app-atl.five9.com/*
@@ -41,7 +41,7 @@
   const FORM_MODAL_ID = "five9-model-form-modal";
   const TARGET_KEY = "five9_msg_target_hint_v1";
   const DEFAULT_TAG = "Geral";
-  const APP_VERSION = "1.5.4";
+  const APP_VERSION = "26.9.3";
   const AI_MIN_SCORE = 2.2;
   const AI_DRAFT_MIN_SCORE = 1.6;
   const AI_DRAFT_MIN_CHARS = 2;
@@ -861,13 +861,84 @@
     el.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
   };
 
-  const findSendButton = (inputEl) => {
+  const isOurScriptUi = (el) =>
+    !!(
+      el &&
+      el.closest?.(
+        "#" +
+          PANEL_ID +
+          ", #" +
+          AI_CARD_ID +
+          ", #" +
+          TOAST_ID +
+          ", #" +
+          FORM_MODAL_ID +
+          ", #" +
+          UPDATE_FLOAT_ID +
+          ", #f9-voice-wrap, #f9-voice-panel, #f9-media-lightbox, .f9-audio-player, .f9-media-card"
+      )
+    );
+
+  const collectSendSearchRoots = (inputEl) => {
     const roots = [];
+    const seen = new Set();
+    const add = (n) => {
+      if (!n || seen.has(n)) return;
+      seen.add(n);
+      roots.push(n);
+    };
     let p = inputEl;
-    for (let i = 0; i < 6 && p; i++) {
-      roots.push(p);
+    for (let i = 0; i < 10 && p; i++) {
+      add(p);
       p = p.parentElement;
     }
+    try {
+      add(findComposerMount(inputEl));
+      add(findComposerMount(inputEl)?.parentElement);
+    } catch (_) {}
+    add(document.querySelector("#panel-context"));
+    add(document.querySelector('[id="panel-context"]'));
+    add(document.querySelector('[aria-labelledby*="context" i]'));
+    // overlays / preview de anexo do Five9
+    document
+      .querySelectorAll(
+        '[role="dialog"], [class*="modal" i], [class*="overlay" i], [class*="preview" i], [class*="attachment" i], [class*="composer" i]'
+      )
+      .forEach((n) => {
+        if (isVisible(n)) add(n);
+      });
+    add(document.body);
+    return roots;
+  };
+
+  const scoreNativeSendControl = (btn) => {
+    if (!btn || !btn.isConnected) return -1;
+    if (isOurScriptUi(btn)) return -1;
+    if (btn.disabled || btn.getAttribute("aria-disabled") === "true") return -1;
+    if (!isVisible(btn)) return -1;
+    const tag = String(btn.tagName || "").toLowerCase();
+    if (tag === "input" && !/^(submit|button)$/i.test(btn.type || "")) return -1;
+    const meta = `${btn.getAttribute("aria-label") || ""} ${btn.getAttribute("title") || ""} ${btn.className || ""} ${btn.id || ""} ${btn.getAttribute("data-testid") || ""}`;
+    const text = shortText(btn).slice(0, 40);
+    // evita clipe / emoji / mic nativo
+    if (/anex|attach|clip|emoji|gif|sticker|microfone|microphone|record|gravar|arquivo|file|photo|imagem|image|c[aâ]mera|camera/i.test(meta + " " + text) &&
+        !/enviar|send|confirm/i.test(meta + " " + text)) {
+      return -1;
+    }
+    let score = 0;
+    if (/send|enviar/i.test(meta)) score += 6;
+    if (/confirm|confirmar/i.test(meta + " " + text)) score += 5;
+    if (/^(enviar|send|confirmar|confirm|ok|enviar agora|send now)$/i.test(text)) score += 8;
+    else if (/enviar|send|confirmar/i.test(text) && text.length < 28) score += 4;
+    if (/paper-?plane|fa-send|icon-send|btn-send|send-btn/i.test(meta)) score += 5;
+    if (btn.closest?.('[role="dialog"], [class*="modal" i], [class*="preview" i], [class*="attachment" i], [class*="media-preview" i]')) {
+      score += 3;
+    }
+    if (tag === "button" || btn.getAttribute("role") === "button") score += 1;
+    return score;
+  };
+
+  const findSendButton = (inputEl) => {
     const selectors = [
       'button[aria-label*="send" i]',
       'button[aria-label*="enviar" i]',
@@ -877,14 +948,40 @@
       'button[class*="send" i]',
       '[role="button"][aria-label*="send" i]',
       '[role="button"][aria-label*="enviar" i]',
+      'button[aria-label*="confirm" i]',
+      'button[aria-label*="confirmar" i]',
+      'button[title*="confirm" i]',
+      'button[title*="confirmar" i]',
     ];
-    for (const root of roots) {
+    for (const root of collectSendSearchRoots(inputEl)) {
       for (const sel of selectors) {
-        const btn = root.querySelector?.(sel);
-        if (btn && isVisible(btn)) return btn;
+        try {
+          const btn = root.querySelector?.(sel);
+          if (btn && scoreNativeSendControl(btn) > 0) return btn;
+        } catch (_) {}
       }
     }
-    return null;
+    // fallback: melhor botão por texto/atributos na área do composer / dialogs
+    let best = null;
+    let bestScore = 0;
+    for (const root of collectSendSearchRoots(inputEl)) {
+      if (!root?.querySelectorAll) continue;
+      let nodes;
+      try {
+        nodes = root.querySelectorAll('button, [role="button"], input[type="submit"], input[type="button"]');
+      } catch (_) {
+        continue;
+      }
+      nodes.forEach((btn) => {
+        const s = scoreNativeSendControl(btn);
+        if (s > bestScore) {
+          bestScore = s;
+          best = btn;
+        }
+      });
+      if (bestScore >= 8) break;
+    }
+    return bestScore >= 3 ? best : null;
   };
 
   const pressEnter = (el) => {
@@ -902,14 +999,64 @@
   };
 
   const trySend = (el) => {
-    el.focus();
+    if (!el) return "";
+    try {
+      el.focus();
+    } catch (_) {}
     const btn = findSendButton(el);
     if (btn) {
+      try {
+        btn.focus?.();
+      } catch (_) {}
       btn.click();
+      // alguns UIs só reagem a pointer events
+      try {
+        btn.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+      } catch (_) {}
       return "botão";
     }
     pressEnter(el);
     return "Enter";
+  };
+
+  // Após anexar mídia, o Five9 pode habilitar o Enviar nativo com atraso
+  // ou abrir um preview pedindo confirmação — tenta várias vezes.
+  const confirmNativeMediaSend = async (inputEl, { timeoutMs = 6500 } = {}) => {
+    const started = Date.now();
+    let attempts = 0;
+    let lastHow = "";
+    while (Date.now() - started < timeoutMs) {
+      attempts += 1;
+      const el = (inputEl && inputEl.isConnected && inputEl) || ensureTarget();
+      if (el) {
+        lastHow = trySend(el) || lastHow;
+      }
+      // segunda chance: botões visíveis em dialogs recém-abertos
+      const dialogBtn = Array.from(
+        document.querySelectorAll(
+          '[role="dialog"] button, [class*="modal" i] button, [class*="preview" i] button, [class*="attachment" i] button'
+        )
+      )
+        .map((b) => ({ b, s: scoreNativeSendControl(b) }))
+        .filter((x) => x.s >= 4)
+        .sort((a, b) => b.s - a.s)[0]?.b;
+      if (dialogBtn) {
+        try {
+          dialogBtn.click();
+          lastHow = "dialog";
+        } catch (_) {}
+      }
+      await new Promise((r) => setTimeout(r, attempts < 3 ? 280 : 420));
+      // se o botão de envio sumiu/desabilitou e não há preview óbvio, assume ok
+      const stillSend = el ? findSendButton(el) : null;
+      const previewOpen = !!document.querySelector(
+        '[role="dialog"] [class*="preview" i], [class*="attachment-preview" i], [class*="media-preview" i]'
+      );
+      if (attempts >= 2 && lastHow && !previewOpen && (!stillSend || stillSend.disabled)) {
+        break;
+      }
+    }
+    return { attempts, how: lastHow };
   };
 
   const escapeHtml = (s) =>
@@ -1443,8 +1590,8 @@
    #${PANEL_ID}-modal .ft-confirm { background: #dc2626; color: #fff; }
    body.five9-picking, body.five9-picking * { cursor: crosshair !important; }
    .five9-target-hl {
-     outline: 3px solid #16a34a !important;
-     outline-offset: 2px !important;
+     outline: 2px solid #16a34a !important;
+     outline-offset: 0 !important;
    }
    #${AI_CARD_ID} {
      z-index: auto;
@@ -1612,6 +1759,596 @@
      padding-right: 0 !important;
    }
    .f9-media-dl-row { display: none !important; }
+
+   /* ── Preview de imagem/vídeo no chat ───────────────────── */
+   .f9-media-card {
+     display: block !important;
+     width: 100% !important;
+     max-width: 100% !important;
+     margin: 8px 0 4px;
+     box-sizing: border-box;
+     border-radius: 14px;
+     border: 1px solid #dbe4ef;
+     background: #f8fafc;
+     overflow: hidden;
+     box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+   }
+   .f9-media-card .f9-media-thumb {
+     display: block;
+     width: 100%;
+     border: 0;
+     padding: 0;
+     margin: 0;
+     background: #0f172a;
+     cursor: zoom-in;
+     position: relative;
+     overflow: hidden;
+   }
+   .f9-media-card .f9-media-thumb img,
+   .f9-media-card .f9-media-thumb video {
+     display: block;
+     width: 100%;
+     max-height: 320px;
+     height: auto;
+     object-fit: contain;
+     background: #0f172a;
+   }
+   .f9-media-card .f9-media-thumb .f9-media-playbadge {
+     position: absolute;
+     left: 50%;
+     top: 50%;
+     transform: translate(-50%, -50%);
+     width: 48px;
+     height: 48px;
+     border-radius: 50%;
+     background: rgba(15, 23, 42, 0.72);
+     color: #fff;
+     display: flex;
+     align-items: center;
+     justify-content: center;
+     pointer-events: none;
+     box-shadow: 0 4px 14px rgba(0,0,0,.25);
+   }
+   .f9-media-card .f9-media-playbadge svg { width: 22px; height: 22px; }
+   .f9-media-card .f9-media-actions {
+     display: flex;
+     align-items: center;
+     gap: 8px;
+     padding: 8px 10px;
+     background: #fff;
+     border-top: 1px solid #e8eef5;
+   }
+   .f9-media-card .f9-media-actions .f9-img-dl-btn { margin-left: auto !important; }
+   /* evita botão duplicado dentro da área da prévia */
+   .f9-media-card .f9-media-thumb .f9-img-dl-btn,
+   .f9-media-card .f9-media-thumb .f9-media-dl-wrap > .f9-img-dl-btn {
+     display: none !important;
+   }
+   .f9-media-card .f9-media-hint {
+     font: 600 11px/1.2 "Segoe UI", system-ui, sans-serif;
+     color: #64748b;
+   }
+   .f9-media-card .f9-media-thumb .f9-preview-fallback {
+     padding: 28px 12px 18px;
+     color: #94a3b8;
+     font: 12px/1.4 "Segoe UI", system-ui, sans-serif;
+     text-align: center;
+   }
+   .f9-media-card .f9-media-thumb .f9-preview-fallback-actions {
+     display: flex;
+     gap: 8px;
+     justify-content: center;
+     margin-top: 10px;
+     flex-wrap: wrap;
+   }
+   .f9-media-card .f9-media-thumb .f9-preview-fallback-actions button {
+     border: 1px solid #475569;
+     background: #1e293b;
+     color: #e2e8f0;
+     border-radius: 8px;
+     padding: 5px 10px;
+     font: 600 11px/1 "Segoe UI", system-ui, sans-serif;
+     cursor: pointer;
+   }
+   .f9-media-card .f9-media-thumb .f9-preview-fallback-actions button:hover {
+     background: #334155;
+   }
+   a.f9-media-hidden-link { display: none !important; }
+   .f9-media-caption-hidden { display: none !important; }
+   /* NÃO usar div:has(> .f9-media-card) — quebrava o layout da Interação */
+
+   /* Caixa de mensagem sempre acessível (não some sob o footer) */
+   .f9-textarea-container.container-reply-message,
+   .f9-textarea-container[data-f9-template="TextArea"],
+   [data-f9-template="TextArea"].container-reply-message,
+   .f9-textarea-container.f9-voice-host,
+   .container-reply-message.f9-voice-host {
+     position: sticky !important;
+     bottom: 0 !important;
+     z-index: 60 !important;
+     background: #fff !important;
+     box-shadow: 0 -6px 18px rgba(15, 23, 42, 0.08);
+   }
+
+   #f9-media-lightbox {
+     position: fixed;
+     inset: 0;
+     z-index: 2147483600;
+     display: none;
+     align-items: center;
+     justify-content: center;
+     padding: 24px;
+     box-sizing: border-box;
+   }
+   #f9-media-lightbox.is-open { display: flex; }
+   #f9-media-lightbox .f9-lb-backdrop {
+     position: absolute;
+     inset: 0;
+     background: rgba(15, 23, 42, 0.78);
+     backdrop-filter: blur(2px);
+   }
+   #f9-media-lightbox .f9-lb-stage {
+     position: relative;
+     z-index: 1;
+     width: min(920px, 100%);
+     max-height: min(86vh, 900px);
+     display: flex;
+     flex-direction: column;
+     gap: 10px;
+   }
+   #f9-media-lightbox .f9-lb-media {
+     flex: 1 1 auto;
+     min-height: 0;
+     display: flex;
+     align-items: center;
+     justify-content: center;
+     background: #0b1220;
+     border-radius: 14px;
+     overflow: hidden;
+     border: 1px solid rgba(255,255,255,.08);
+     box-shadow: 0 24px 60px rgba(0,0,0,.35);
+     touch-action: none;
+     cursor: zoom-in;
+     position: relative;
+   }
+   #f9-media-lightbox .f9-lb-media.is-zoomed {
+     cursor: grab;
+   }
+   #f9-media-lightbox .f9-lb-media.is-panning {
+     cursor: grabbing;
+   }
+   #f9-media-lightbox .f9-lb-media img,
+   #f9-media-lightbox .f9-lb-media video {
+     max-width: 100%;
+     max-height: min(74vh, 820px);
+     object-fit: contain;
+     display: block;
+     transform-origin: center center;
+     will-change: transform;
+     user-select: none;
+     -webkit-user-drag: none;
+     transition: transform 0.05s linear;
+   }
+   #f9-media-lightbox .f9-lb-media img.f9-lb-zoomable {
+     max-width: none;
+     max-height: none;
+     width: auto;
+     height: auto;
+     max-width: 100%;
+     max-height: min(74vh, 820px);
+   }
+   #f9-media-lightbox .f9-lb-zoomhint {
+     position: absolute;
+     left: 12px;
+     bottom: 10px;
+     z-index: 2;
+     padding: 4px 8px;
+     border-radius: 999px;
+     background: rgba(15, 23, 42, 0.72);
+     color: #e2e8f0;
+     font: 600 11px/1 "Segoe UI", system-ui, sans-serif;
+     pointer-events: none;
+     opacity: 0.92;
+   }
+   #f9-media-lightbox .f9-lb-bar {
+     display: flex;
+     align-items: center;
+     gap: 8px;
+     justify-content: flex-end;
+   }
+   #f9-media-lightbox .f9-lb-bar .f9-lb-zoomlabel {
+     margin-right: auto;
+     color: #cbd5e1;
+     font: 600 12px/1 "Segoe UI", system-ui, sans-serif;
+   }
+   #f9-media-lightbox .f9-lb-bar button {
+     border: 0;
+     border-radius: 8px;
+     padding: 9px 14px;
+     cursor: pointer;
+     font: 600 13px/1 "Segoe UI", system-ui, sans-serif;
+   }
+   #f9-media-lightbox .f9-lb-zin,
+   #f9-media-lightbox .f9-lb-zout,
+   #f9-media-lightbox .f9-lb-zreset {
+     background: #334155;
+     color: #f8fafc;
+     min-width: 40px;
+   }
+   #f9-media-lightbox .f9-lb-dl {
+     background: #0f766e;
+     color: #fff;
+   }
+   #f9-media-lightbox .f9-lb-open {
+     background: #1e293b;
+     color: #e2e8f0;
+   }
+   #f9-media-lightbox .f9-lb-close {
+     background: #fff;
+     color: #0f172a;
+   }
+
+   /* ── Player de áudio no chat ───────────────────────────── */
+   .f9-audio-player {
+     display: flex !important;
+     align-items: center;
+     gap: 10px;
+     margin: 4px 0 2px;
+     padding: 8px 10px;
+     width: min(360px, 100%) !important;
+     max-width: 100% !important;
+     min-width: 0;
+     box-sizing: border-box;
+     border-radius: 12px;
+     border: 1px solid #dbe4ef;
+     background: linear-gradient(165deg, #ffffff 0%, #f3f7fb 100%);
+     box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), inset 0 1px 0 rgba(255,255,255,.8);
+     font: 12px/1.2 "Segoe UI", system-ui, sans-serif;
+     color: #0f172a;
+     user-select: none;
+   }
+   .f9-audio-host {
+     display: block !important;
+     width: min(360px, 100%) !important;
+     max-width: 100% !important;
+     min-width: 0;
+     box-sizing: border-box;
+     margin: 4px 0 2px;
+   }
+   /* Áudio enviado pelo agente: fica à esquerda; só o card/.content fica azul.
+      O reprodutor permanece no visual padrão (igual ao do motorista). */
+   .message-container.f9-agent-audio-out [id^="agent."] > .content,
+   .message-container.f9-agent-audio-out .content {
+     background: #1e4b8c !important;
+     color: #f8fafc !important;
+     border-radius: 10px !important;
+   }
+   /* NÃO forçar display/width em pais genéricos — isso empurrava a TextArea */
+   a.f9-audio-hidden-link {
+     display: none !important;
+   }
+   .f9-audio-player[data-state="error"] {
+     border-color: #fecaca;
+     background: #fff7f7;
+   }
+   .f9-audio-player[data-state="playing"] {
+     border-color: #99d5cf;
+     box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.08);
+   }
+   .f9-audio-play {
+     flex: 0 0 auto;
+     width: 36px;
+     height: 36px;
+     border: 0;
+     border-radius: 50%;
+     cursor: pointer;
+     display: inline-flex;
+     align-items: center;
+     justify-content: center;
+     background: #0f766e;
+     color: #fff;
+     box-shadow: 0 2px 6px rgba(15, 118, 110, 0.28);
+     transition: transform .12s ease, filter .12s ease, background .12s ease;
+   }
+   .f9-audio-play:hover { filter: brightness(1.06); transform: scale(1.04); }
+   .f9-audio-play:active { transform: scale(0.98); }
+   .f9-audio-play:disabled { opacity: 0.55; cursor: wait; transform: none; }
+   .f9-audio-play svg { width: 16px; height: 16px; pointer-events: none; }
+   .f9-audio-body { flex: 1 1 auto; min-width: 0; display: grid; gap: 6px; }
+   .f9-audio-meta {
+     display: flex;
+     align-items: center;
+     justify-content: space-between;
+     gap: 8px;
+     color: #334155;
+     font-weight: 600;
+     font-size: 11px;
+     letter-spacing: 0.01em;
+   }
+   .f9-audio-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+   .f9-audio-time { flex: 0 0 auto; color: #64748b; font-variant-numeric: tabular-nums; font-weight: 500; }
+   .f9-audio-seek {
+     -webkit-appearance: none;
+     appearance: none;
+     width: 100%;
+     height: 5px;
+     border-radius: 999px;
+     background: #d8e2ec;
+     outline: none;
+     cursor: pointer;
+     margin: 0;
+   }
+   .f9-audio-seek::-webkit-slider-thumb {
+     -webkit-appearance: none;
+     appearance: none;
+     width: 13px;
+     height: 13px;
+     border-radius: 50%;
+     background: #0f766e;
+     border: 2px solid #fff;
+     box-shadow: 0 1px 3px rgba(15, 23, 42, 0.25);
+     cursor: pointer;
+   }
+   .f9-audio-seek::-moz-range-thumb {
+     width: 13px;
+     height: 13px;
+     border-radius: 50%;
+     background: #0f766e;
+     border: 2px solid #fff;
+     box-shadow: 0 1px 3px rgba(15, 23, 42, 0.25);
+     cursor: pointer;
+   }
+   .f9-audio-open {
+     flex: 0 0 auto;
+     width: 30px;
+     height: 30px;
+     border: 1px solid #d7dee8;
+     border-radius: 8px;
+     background: #fff;
+     color: #475569;
+     cursor: pointer;
+     display: inline-flex;
+     align-items: center;
+     justify-content: center;
+   }
+   .f9-audio-open:hover { background: #eff6ff; border-color: #93c5fd; color: #1d4ed8; }
+   .f9-audio-open svg { width: 14px; height: 14px; }
+
+   /* Mini-player persistente (sobrevive à troca de chat) */
+   #f9-audio-dock {
+     position: fixed;
+     left: 18px;
+     bottom: 72px;
+     right: auto;
+     transform: translateY(12px);
+     z-index: 2147483000;
+     width: min(360px, calc(100vw - 36px));
+     opacity: 0;
+     pointer-events: none;
+     transition: opacity .18s ease, transform .18s ease;
+   }
+   #f9-audio-dock.is-show {
+     opacity: 1;
+     pointer-events: auto;
+     transform: translateY(0);
+   }
+   #f9-audio-dock .f9-audio-dock-inner {
+     display: flex;
+     align-items: center;
+     gap: 10px;
+     padding: 10px 12px;
+     border-radius: 16px;
+     border: 1px solid #cfe0f0;
+     background: linear-gradient(165deg, #ffffff 0%, #eef6f4 100%);
+     box-shadow: 0 10px 28px rgba(15, 23, 42, 0.18);
+     font: 12px/1.2 "Segoe UI", system-ui, sans-serif;
+     color: #0f172a;
+   }
+   #f9-audio-dock .f9-audio-dock-pulse {
+     width: 8px;
+     height: 8px;
+     border-radius: 50%;
+     background: #0f766e;
+     box-shadow: 0 0 0 0 rgba(15, 118, 110, 0.45);
+     animation: f9-audio-pulse 1.4s ease-out infinite;
+     flex: 0 0 auto;
+   }
+   #f9-audio-dock[data-state="paused"] .f9-audio-dock-pulse {
+     animation: none;
+     background: #94a3b8;
+     box-shadow: none;
+   }
+   @keyframes f9-audio-pulse {
+     0% { box-shadow: 0 0 0 0 rgba(15, 118, 110, 0.45); }
+     70% { box-shadow: 0 0 0 10px rgba(15, 118, 110, 0); }
+     100% { box-shadow: 0 0 0 0 rgba(15, 118, 110, 0); }
+   }
+   #f9-audio-dock .f9-audio-dock-text { flex: 1 1 auto; min-width: 0; }
+   #f9-audio-dock .f9-audio-dock-label {
+     font-size: 10px;
+     font-weight: 700;
+     letter-spacing: 0.04em;
+     text-transform: uppercase;
+     color: #0f766e;
+   }
+   #f9-audio-dock .f9-audio-dock-title {
+     margin-top: 2px;
+     font-weight: 600;
+     color: #0f172a;
+     overflow: hidden;
+     text-overflow: ellipsis;
+     white-space: nowrap;
+   }
+   #f9-audio-dock .f9-audio-dock-time {
+     margin-top: 2px;
+     color: #64748b;
+     font-variant-numeric: tabular-nums;
+     font-size: 11px;
+   }
+   #f9-audio-dock .f9-audio-dock-close {
+     flex: 0 0 auto;
+     width: 28px;
+     height: 28px;
+     border: 0;
+     border-radius: 8px;
+     background: #f1f5f9;
+     color: #475569;
+     cursor: pointer;
+     font-size: 16px;
+     line-height: 1;
+   }
+   #f9-audio-dock .f9-audio-dock-close:hover { background: #e2e8f0; }
+
+   /* ── Gravação de áudio na Interação ───────────────────── */
+   .f9-textarea-container.f9-voice-host,
+   .container-reply-message.f9-voice-host,
+   [data-f9-template="TextArea"].f9-voice-host {
+     position: relative !important;
+   }
+   .f9-textarea-container.f9-voice-host textarea,
+   .container-reply-message.f9-voice-host textarea,
+   [data-f9-template="TextArea"].f9-voice-host textarea {
+     padding-right: 52px !important;
+     box-sizing: border-box !important;
+   }
+   #f9-voice-wrap {
+     position: absolute !important;
+     right: 10px;
+     bottom: 10px;
+     display: inline-flex !important;
+     align-items: center;
+     gap: 8px;
+     margin: 0 !important;
+     flex: 0 0 auto;
+     z-index: 30;
+     pointer-events: none;
+   }
+   #f9-voice-wrap > * { pointer-events: auto; }
+   #f9-voice-mic {
+     width: 36px;
+     height: 36px;
+     border: 0;
+     border-radius: 50%;
+     background: linear-gradient(165deg, #0f766e 0%, #0d9488 100%);
+     color: #fff;
+     cursor: pointer;
+     display: inline-flex;
+     align-items: center;
+     justify-content: center;
+     box-shadow: 0 4px 12px rgba(13, 148, 136, 0.35);
+     transition: transform .12s ease, filter .12s ease, box-shadow .12s ease;
+   }
+   #f9-voice-mic:hover { filter: brightness(1.06); transform: scale(1.05); }
+   #f9-voice-mic:active { transform: scale(0.96); }
+   #f9-voice-mic:disabled { opacity: 0.55; cursor: wait; transform: none; }
+   #f9-voice-mic svg { width: 18px; height: 18px; pointer-events: none; }
+   #f9-voice-mic[data-state="recording"] {
+     background: linear-gradient(165deg, #b91c1c 0%, #ef4444 100%);
+     box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.45);
+     animation: f9-voice-pulse 1.2s ease-out infinite;
+   }
+   @keyframes f9-voice-pulse {
+     0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.45); }
+     70% { box-shadow: 0 0 0 12px rgba(239, 68, 68, 0); }
+     100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+   }
+   #f9-voice-panel {
+     position: fixed;
+     left: 50%;
+     bottom: 28px;
+     transform: translateX(-50%) translateY(12px);
+     z-index: 2147483000;
+     width: min(420px, calc(100vw - 24px));
+     background: #0f172a;
+     color: #e2e8f0;
+     border: 1px solid #334155;
+     border-radius: 16px;
+     box-shadow: 0 18px 50px rgba(15, 23, 42, 0.45);
+     padding: 12px 14px;
+     display: none;
+     gap: 10px;
+     flex-direction: column;
+     opacity: 0;
+     transition: opacity .16s ease, transform .16s ease;
+   }
+   #f9-voice-panel.is-open {
+     display: flex;
+     opacity: 1;
+     transform: translateX(-50%) translateY(0);
+   }
+   #f9-voice-panel .f9-voice-row {
+     display: flex;
+     align-items: center;
+     gap: 10px;
+   }
+   #f9-voice-panel .f9-voice-dot {
+     width: 10px;
+     height: 10px;
+     border-radius: 50%;
+     background: #ef4444;
+     flex: 0 0 auto;
+     animation: f9-voice-blink 1s ease-in-out infinite;
+   }
+   @keyframes f9-voice-blink {
+     0%, 100% { opacity: 1; }
+     50% { opacity: 0.35; }
+   }
+   #f9-voice-panel .f9-voice-title {
+     flex: 1 1 auto;
+     font: 600 13px/1.2 "Segoe UI", system-ui, sans-serif;
+   }
+   #f9-voice-panel .f9-voice-time {
+     font: 600 13px/1 "Segoe UI", system-ui, sans-serif;
+     font-variant-numeric: tabular-nums;
+     color: #94a3b8;
+   }
+   #f9-voice-panel button {
+     border: 0;
+     border-radius: 10px;
+     padding: 9px 12px;
+     cursor: pointer;
+     font: 600 12px/1 "Segoe UI", system-ui, sans-serif;
+   }
+   #f9-voice-panel .f9-voice-stop {
+     background: #ef4444;
+     color: #fff;
+   }
+   #f9-voice-panel .f9-voice-play {
+     width: 36px;
+     height: 36px;
+     border-radius: 50%;
+     padding: 0;
+     background: #1e293b;
+     color: #f8fafc;
+     display: inline-flex;
+     align-items: center;
+     justify-content: center;
+   }
+   #f9-voice-panel .f9-voice-play svg { width: 16px; height: 16px; }
+   #f9-voice-panel .f9-voice-discard {
+     background: #334155;
+     color: #e2e8f0;
+   }
+   #f9-voice-panel .f9-voice-send {
+     background: #0f766e;
+     color: #fff;
+     margin-left: auto;
+   }
+   #f9-voice-panel .f9-voice-send:disabled {
+     opacity: 0.6;
+     cursor: wait;
+   }
+   #f9-voice-panel .f9-voice-seek {
+     flex: 1 1 auto;
+     accent-color: #14b8a6;
+   }
+   #f9-voice-panel .f9-voice-hint {
+     font: 11px/1.35 "Segoe UI", system-ui, sans-serif;
+     color: #94a3b8;
+   }
+   #f9-voice-panel[data-mode="recording"] .f9-voice-preview-only { display: none !important; }
+   #f9-voice-panel[data-mode="preview"] .f9-voice-rec-only { display: none !important; }
+
    #${PANEL_ID} .ft-import-hint {
      font-size: 11px;
      color: #6b7280;
@@ -2838,6 +3575,9 @@
     if (!inputEl || isInOverlay(inputEl)) return null;
     const preferred = inputEl.closest?.(
       [
+        ".f9-textarea-container",
+        ".container-reply-message",
+        '[data-f9-template="TextArea"]',
         ".pn-msg-input__wrapper",
         "[class*='composer' i]",
         "[class*='message-input' i]",
@@ -2900,24 +3640,35 @@
   };
 
   const isLikelyOwnMessage = (el, text) => {
+    // Five9: mensagens do agente usam id="agent.<...>"
+    try {
+      if (el?.id && /^agent\./i.test(el.id)) return true;
+      if (el?.closest?.("[id^='agent.']")) return true;
+      if (el?.id && /^(customer|contact|client|visitor|enduser)\./i.test(el.id)) return false;
+      if (el?.closest?.("[id^='customer.'], [id^='contact.'], [id^='client.'], [id^='visitor.']")) {
+        return false;
+      }
+    } catch (_) {}
     const blob = normalize(
       [
         el.getAttribute?.("class") || "",
+        el.id || "",
         el.getAttribute?.("data-testid") || "",
         el.getAttribute?.("aria-label") || "",
         el.parentElement?.getAttribute?.("class") || "",
+        el.parentElement?.id || "",
         el.closest?.("[class]")?.className || "",
       ].join(" ")
     );
     if (
-      /(outbound|outgoing|sent|mine|self|agent|agent-message|from-agent|is-me|own-message|right)/.test(
+      /(outbound|outgoing|sent|mine|self|agent-message|from-agent|is-me|own-message)/.test(
         blob
       )
     ) {
       return true;
     }
     if (
-      /(inbound|incoming|received|customer|client|driver|motorista|visitor|left|from-customer)/.test(
+      /(inbound|incoming|received|customer|client|driver|motorista|visitor|from-customer)/.test(
         blob
       )
     ) {
@@ -3917,15 +4668,19 @@
   const VIDEO_EXT_RE = /\.(mp4|webm|mov|m4v|mkv|avi)(?:$|[?#])/i;
   const AUDIO_EXT_RE = /\.(mp3|wav|ogg|opus|m4a|aac|amr|oga|weba|flac)(?:$|[?#])/i;
   const MEDIA_EXT_RE =
-    /\.(jpe?g|png|gif|webp|bmp|svg|avif|heic|heif|jfif|tif{1,2}|mp4|webm|mov|m4v|mkv|avi)(?:$|[?#])/i;
+    /\.(jpe?g|png|gif|webp|bmp|svg|avif|heic|heif|jfif|tif{1,2}|mp4|webm|mov|m4v|mkv|avi|mp3|wav|ogg|opus|m4a|aac|amr|oga|weba|flac)(?:$|[?#])/i;
   const MEDIA_URL_IN_TEXT_RE =
-    /https?:\/\/[^\s<>"']+\.(?:jpe?g|png|gif|webp|bmp|svg|avif|heic|heif|jfif|tiff?|mp4|webm|mov|m4v|mkv|avi)(?:\?[^\s<>"']*)?/gi;
+    /https?:\/\/[^\s<>"']+\.(?:jpe?g|png|gif|webp|bmp|svg|avif|heic|heif|jfif|tiff?|mp4|webm|mov|m4v|mkv|avi|mp3|wav|ogg|opus|m4a|aac|amr|oga|weba|flac)(?:\?[^\s<>"']*)?/gi;
+  const ANEXOS_URL_IN_TEXT_RE =
+    /https?:\/\/[^\s<>"']*\/anexos\/(?:images?|videos?|files?|media)\/[^\s<>"']+/gi;
   const NOT_MEDIA_HOST_RE =
     /(maps\.google|google\.com\/maps|youtube\.com|youtu\.be|vimeo\.com|facebook\.com\/(?:watch|reel)|instagram\.com\/(?:p|reel)|tiktok\.com|linkedin\.com|wa\.me|api\.whatsapp\.com|tel:|mailto:)/i;
   const ANEXOS_RE = /\/anexos\//i;
-  // Só listas/painéis claros — evitar termos genéricos que existem no chat
+  // Lista BATE-PAPO / painéis laterais — NUNCA preview de mídia aqui
   const SIDEBAR_RE =
-    /(conversation-list|chat-list|session-list|interaction-list|contact-list|preview-list|workitem-list|engagement-list|inbox-list|queue-list|my-interactions|active-interactions|left-rail|left-panel|side-panel|workitem-card|interaction-card)/i;
+    /(social-sidebar-item|agent-screen-social-sidebar|conversation-list|chat-list|session-list|interaction-list|contact-list|preview-list|workitem-list|engagement-list|inbox-list|queue-list|my-interactions|active-interactions|left-rail|left-panel|side-panel|workitem-card|interaction-card|lhs-item)/i;
+  const SOCIAL_SIDEBAR_SEL =
+    '.social-sidebar-item, [id^="lhs-item-"], .agent-screen-social-sidebar-item-top, .agent-screen-social-sidebar-item-bottom, .social-sidebar-item-content';
   const PREVIEW_CARD_TEXT_RE =
     /\b(nenhum assunto|sem assunto|no subject|agora|há \d+\s*min|min atrás|NF\s*#?\d+)\b/i;
   const CHANNEL_BADGE_RE = /\b(wa|whatsapp|sms|voice|email)\b/i;
@@ -3937,8 +4692,12 @@
   const imgDlProbeCache = new Map();
 
   const mediaKindFromUrl = (url) => {
-    if (VIDEO_EXT_RE.test(url)) return "video";
-    if (IMAGE_EXT_RE.test(url)) return "image";
+    const u = String(url || "");
+    if (VIDEO_EXT_RE.test(u) || /\/anexos\/videos?\//i.test(u)) return "video";
+    if (IMAGE_EXT_RE.test(u) || /\/anexos\/images?\//i.test(u)) return "image";
+    // anexos sem extensão no histórico costumam ser foto
+    if (ANEXOS_RE.test(u) && /\/(files?|media)\//i.test(u)) return "image";
+    if (ANEXOS_RE.test(u) && /\/[a-f0-9-]{8,}[^/]*$/i.test(u.split("?")[0])) return "image";
     return "file";
   };
 
@@ -3958,16 +4717,35 @@
       .replace(/\s+/g, " ")
       .trim();
 
+  // Card da lista BATE-PAPO (ex.: li.social-sidebar-item / lhs-item-…)
+  const isSocialSidebarListItem = (el) => {
+    if (!el || !el.closest) return false;
+    try {
+      if (el.closest(SOCIAL_SIDEBAR_SEL)) return true;
+      if (el.id && /^lhs-item-/i.test(el.id)) return true;
+      let node = el;
+      for (let i = 0; i < 8 && node && node !== document.body; i++) {
+        const cls = String(node.className || "");
+        const id = String(node.id || "");
+        if (/social-sidebar-item|agent-screen-social-sidebar|lhs-item/i.test(`${cls} ${id}`)) {
+          return true;
+        }
+        node = node.parentElement;
+      }
+    } catch (_) {}
+    return false;
+  };
+
   // Card de interação/motorista na lista (ex.: Hugo Risso · Agora · wa · NF …)
   const isInteractionPreviewCard = (el) => {
     if (!el) return true;
+    // lista BATE-PAPO: sempre card de lista, mesmo com "Imagem enviada!"
+    if (isSocialSidebarListItem(el)) return true;
     let node = el;
     for (let i = 0; i < 10 && node && node !== document.body; i++) {
       const cls = String(node.className || "");
       const id = String(node.id || "");
       if (SIDEBAR_RE.test(`${cls} ${id}`)) {
-        // se o próprio alvo já tem mídia, é mensagem do chat — não bloquear
-        if (CHAT_MEDIA_TEXT_RE.test(shortText(el))) return false;
         return true;
       }
 
@@ -3977,17 +4755,14 @@
       } catch (_) {}
       const text = shortText(node);
       if (rect && text && text.length >= 8 && text.length <= 280) {
-        if (CHAT_MEDIA_TEXT_RE.test(text)) {
-          node = node.parentElement;
-          continue;
-        }
+        // não use "imagem enviada" para liberar — isso aparece no card da lista
         const compact =
-          rect.height > 36 && rect.height < 150 && rect.width > 140 && rect.width < 520;
+          rect.height > 36 && rect.height < 220 && rect.width > 140 && rect.width < 560;
         const looksPreview =
           PREVIEW_CARD_TEXT_RE.test(text) &&
-          (CHANNEL_BADGE_RE.test(text) || /\bNF\s*#?\d+/i.test(text));
+          (CHANNEL_BADGE_RE.test(text) || /\bNF\s*#?\d+/i.test(text) || /Britinho|null/i.test(text));
         if (compact && looksPreview) return true;
-        if (compact && rect.left < 90 && rect.right < 520 && PREVIEW_CARD_TEXT_RE.test(text)) {
+        if (compact && rect.left < 120 && rect.right < 560 && PREVIEW_CARD_TEXT_RE.test(text)) {
           return true;
         }
       }
@@ -3998,6 +4773,7 @@
 
   const isClearlySidebar = (el) => {
     if (!el) return true;
+    if (isSocialSidebarListItem(el)) return true;
     if (isInteractionPreviewCard(el)) return true;
     try {
       const r = el.getBoundingClientRect();
@@ -4006,8 +4782,7 @@
         r.right < 380 &&
         r.height > 0 &&
         r.height < 100 &&
-        r.width < 380 &&
-        !CHAT_MEDIA_TEXT_RE.test(shortText(el))
+        r.width < 380
       ) {
         return true;
       }
@@ -4019,6 +4794,7 @@
     if (!el || !el.isConnected) return false;
     if (el.closest?.("#" + PANEL_ID) || el.closest?.("#" + AI_CARD_ID)) return false;
     if (el.closest?.("#" + FORM_MODAL_ID) || el.closest?.("#" + TOAST_ID)) return false;
+    if (isSocialSidebarListItem(el)) return false;
     return !isClearlySidebar(el);
   };
 
@@ -4406,6 +5182,911 @@
     return btn;
   };
 
+  /* ── Preview imagem/vídeo + lightbox ─────────────────────── */
+
+  const mediaPreviewBlobCache = new Map();
+  const MEDIA_PLAY_BADGE = `<span class="f9-media-playbadge" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v13.72L19 12 8 5.14z"/></svg></span>`;
+
+  const sniffPreviewMime = (bytes, kind, hintType) => {
+    const hint = String(hintType || "").split(";")[0].trim().toLowerCase();
+    if (hint.startsWith("image/") || hint.startsWith("video/")) return hint;
+    if (!bytes || bytes.length < 12) {
+      return kind === "video" ? "video/mp4" : "image/jpeg";
+    }
+    const b = bytes;
+    if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+    if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
+    if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) return "image/gif";
+    if (
+      b[0] === 0x52 &&
+      b[1] === 0x49 &&
+      b[2] === 0x46 &&
+      b[3] === 0x46 &&
+      b[8] === 0x57 &&
+      b[9] === 0x45 &&
+      b[10] === 0x42 &&
+      b[11] === 0x50
+    )
+      return "image/webp";
+    if (b[4] === 0x66 && b[5] === 0x74 && b[6] === 0x79 && b[7] === 0x70) return "video/mp4";
+    if (b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) return "video/webm";
+    let head = "";
+    for (let i = 0; i < Math.min(64, b.length); i++) head += String.fromCharCode(b[i]);
+    head = head.toLowerCase();
+    if (head.includes("<!doctype") || head.includes("<html") || head.includes("<head")) {
+      return "text/html";
+    }
+    return kind === "video" ? "video/mp4" : "image/jpeg";
+  };
+
+  const previewHeaderVariants = (url, kind) => {
+    const accept =
+      kind === "video" ? "video/*,application/octet-stream,*/*;q=0.8" : "image/*,application/octet-stream,*/*;q=0.8";
+    const refs = [];
+    try {
+      refs.push(location.href);
+      refs.push(location.origin + "/");
+    } catch (_) {}
+    try {
+      const u = new URL(url);
+      refs.push(u.origin + "/");
+    } catch (_) {}
+    refs.push("https://app-atl.five9.com/");
+    refs.push("https://app.five9.com/");
+    const uniq = [];
+    const seen = new Set();
+    const push = (headers) => {
+      const key = JSON.stringify(headers);
+      if (seen.has(key)) return;
+      seen.add(key);
+      uniq.push(headers);
+    };
+    push({ Accept: accept });
+    push({ Accept: "*/*" });
+    refs.forEach((ref) => {
+      if (!ref) return;
+      push({ Accept: accept, Referer: ref });
+      push({ Accept: "*/*", Referer: ref });
+    });
+    return uniq;
+  };
+
+  const gmFetchArrayBuffer = (url, headers) =>
+    new Promise((resolve, reject) => {
+      if (typeof GM_xmlhttpRequest !== "function") {
+        reject(new Error("no xhr"));
+        return;
+      }
+      GM_xmlhttpRequest({
+        method: "GET",
+        url,
+        responseType: "arraybuffer",
+        timeout: 90000,
+        anonymous: false,
+        headers: headers || { Accept: "*/*" },
+        onload: (res) => {
+          try {
+            if (res.status < 200 || res.status >= 300) {
+              reject(new Error("http " + res.status));
+              return;
+            }
+            const buf = res.response;
+            if (!buf || !buf.byteLength) {
+              reject(new Error("empty"));
+              return;
+            }
+            const ct =
+              (typeof res.responseHeaders === "string" &&
+                (res.responseHeaders.match(/content-type:\s*([^\r\n]+)/i) || [])[1]) ||
+              "";
+            resolve({ buf, contentType: ct, finalUrl: res.finalUrl || url });
+          } catch (e) {
+            reject(e);
+          }
+        },
+        onerror: () => reject(new Error("net")),
+        ontimeout: () => reject(new Error("timeout")),
+      });
+    });
+
+  const pageFetchArrayBuffer = async (url) => {
+    const fetchFn =
+      (typeof unsafeWindow !== "undefined" && unsafeWindow.fetch && unsafeWindow.fetch.bind(unsafeWindow)) ||
+      (typeof fetch === "function" ? fetch.bind(window) : null);
+    if (!fetchFn) throw new Error("no fetch");
+    const res = await fetchFn(url, {
+      method: "GET",
+      credentials: "include",
+      mode: "cors",
+      cache: "force-cache",
+      headers: { Accept: "*/*" },
+    });
+    if (!res.ok) throw new Error("http " + res.status);
+    const buf = await res.arrayBuffer();
+    if (!buf || !buf.byteLength) throw new Error("empty");
+    return { buf, contentType: res.headers?.get?.("content-type") || "", finalUrl: res.url || url };
+  };
+
+  const bufferToPreviewObjectUrl = (buf, kind, contentType) => {
+    const bytes = new Uint8Array(buf);
+    const mime = sniffPreviewMime(bytes, kind, contentType);
+    if (mime === "text/html") throw new Error("html");
+    if (!bytes.byteLength) throw new Error("empty");
+    return URL.createObjectURL(new Blob([buf], { type: mime }));
+  };
+
+  const fetchMediaPreviewUrl = async (url, kind) => {
+    if (mediaPreviewBlobCache.has(url)) return mediaPreviewBlobCache.get(url);
+    const errors = [];
+
+    // 1) GM com várias combinações de Referer (histórico / anexos autenticados)
+    for (const headers of previewHeaderVariants(url, kind)) {
+      try {
+        const { buf, contentType } = await gmFetchArrayBuffer(url, headers);
+        const obj = bufferToPreviewObjectUrl(buf, kind, contentType);
+        mediaPreviewBlobCache.set(url, obj);
+        return obj;
+      } catch (e) {
+        errors.push(String(e && e.message ? e.message : e));
+      }
+    }
+
+    // 2) fetch da página (cookies first-party do Five9 / proxy)
+    try {
+      const { buf, contentType } = await pageFetchArrayBuffer(url);
+      const obj = bufferToPreviewObjectUrl(buf, kind, contentType);
+      mediaPreviewBlobCache.set(url, obj);
+      return obj;
+    } catch (e) {
+      errors.push("page:" + String(e && e.message ? e.message : e));
+    }
+
+    console.warn("[Five9 Modelos] preview fetch falhou:", url, errors.slice(0, 6));
+    throw new Error(errors[0] || "preview fail");
+  };
+
+  const openMediaUrlFallback = (url) => {
+    try {
+      if (typeof GM_openInTab === "function") GM_openInTab(url, { active: true, insert: true });
+      else window.open(url, "_blank", "noopener");
+    } catch (_) {
+      window.open(url, "_blank");
+    }
+  };
+
+  let lbZoom = { scale: 1, x: 0, y: 0, img: null, stage: null, label: null, hint: null };
+
+  const clampLbZoom = (n, min, max) => Math.min(max, Math.max(min, n));
+
+  const syncLbZoomUi = () => {
+    const pct = Math.round((lbZoom.scale || 1) * 100) + "%";
+    if (lbZoom.label) lbZoom.label.textContent = "Zoom " + pct + " · scroll para ampliar";
+    if (lbZoom.hint) lbZoom.hint.textContent = pct;
+    if (lbZoom.stage) {
+      lbZoom.stage.classList.toggle("is-zoomed", (lbZoom.scale || 1) > 1.02);
+    }
+  };
+
+  const applyLbZoomTransform = () => {
+    const img = lbZoom.img;
+    if (!img) return;
+    img.style.transform = `translate(${lbZoom.x}px, ${lbZoom.y}px) scale(${lbZoom.scale})`;
+    syncLbZoomUi();
+  };
+
+  const resetLbZoom = () => {
+    lbZoom.scale = 1;
+    lbZoom.x = 0;
+    lbZoom.y = 0;
+    applyLbZoomTransform();
+  };
+
+  const setLbZoomAt = (nextScale, clientX, clientY) => {
+    const img = lbZoom.img;
+    const stage = lbZoom.stage;
+    if (!img || !stage) return;
+    const prev = lbZoom.scale || 1;
+    const scale = clampLbZoom(nextScale, 1, 8);
+    if (scale === 1) {
+      resetLbZoom();
+      return;
+    }
+    const rect = stage.getBoundingClientRect();
+    const cx = (clientX != null ? clientX : rect.left + rect.width / 2) - rect.left - rect.width / 2;
+    const cy = (clientY != null ? clientY : rect.top + rect.height / 2) - rect.top - rect.height / 2;
+    // mantém o ponto sob o cursor estável ao zoomar
+    lbZoom.x = cx - ((cx - lbZoom.x) * scale) / prev;
+    lbZoom.y = cy - ((cy - lbZoom.y) * scale) / prev;
+    lbZoom.scale = scale;
+    // limita pan grosseiramente
+    const maxPan = 1200 * (scale - 1);
+    lbZoom.x = clampLbZoom(lbZoom.x, -maxPan, maxPan);
+    lbZoom.y = clampLbZoom(lbZoom.y, -maxPan, maxPan);
+    applyLbZoomTransform();
+  };
+
+  const bindLightboxImageZoom = (stage, img, box) => {
+    lbZoom = {
+      scale: 1,
+      x: 0,
+      y: 0,
+      img,
+      stage,
+      label: box.querySelector(".f9-lb-zoomlabel"),
+      hint: null,
+    };
+    img.classList.add("f9-lb-zoomable");
+    img.draggable = false;
+
+    let hint = stage.querySelector(".f9-lb-zoomhint");
+    if (!hint) {
+      hint = document.createElement("div");
+      hint.className = "f9-lb-zoomhint";
+      stage.appendChild(hint);
+    }
+    lbZoom.hint = hint;
+    resetLbZoom();
+
+    const onWheel = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const delta = e.deltaY;
+      // trackpad/mouse: scroll up = zoom in
+      const factor = delta < 0 ? 1.12 : 1 / 1.12;
+      setLbZoomAt((lbZoom.scale || 1) * factor, e.clientX, e.clientY);
+    };
+
+    let dragging = false;
+    let lastX = 0;
+    let lastY = 0;
+    const onPointerDown = (e) => {
+      if (e.button != null && e.button !== 0) return;
+      if ((lbZoom.scale || 1) <= 1.02) return;
+      dragging = true;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      stage.classList.add("is-panning");
+      try {
+        stage.setPointerCapture?.(e.pointerId);
+      } catch (_) {}
+      e.preventDefault();
+    };
+    const onPointerMove = (e) => {
+      if (!dragging) return;
+      lbZoom.x += e.clientX - lastX;
+      lbZoom.y += e.clientY - lastY;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      const maxPan = 1200 * ((lbZoom.scale || 1) - 1);
+      lbZoom.x = clampLbZoom(lbZoom.x, -maxPan, maxPan);
+      lbZoom.y = clampLbZoom(lbZoom.y, -maxPan, maxPan);
+      applyLbZoomTransform();
+    };
+    const onPointerUp = (e) => {
+      if (!dragging) return;
+      dragging = false;
+      stage.classList.remove("is-panning");
+      try {
+        stage.releasePointerCapture?.(e.pointerId);
+      } catch (_) {}
+    };
+    const onDblClick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if ((lbZoom.scale || 1) > 1.05) resetLbZoom();
+      else setLbZoomAt(2.5, e.clientX, e.clientY);
+    };
+
+    stage.addEventListener("wheel", onWheel, { passive: false });
+    stage.addEventListener("pointerdown", onPointerDown);
+    stage.addEventListener("pointermove", onPointerMove);
+    stage.addEventListener("pointerup", onPointerUp);
+    stage.addEventListener("pointercancel", onPointerUp);
+    img.addEventListener("dblclick", onDblClick);
+    stage._f9ZoomCleanup = () => {
+      stage.removeEventListener("wheel", onWheel);
+      stage.removeEventListener("pointerdown", onPointerDown);
+      stage.removeEventListener("pointermove", onPointerMove);
+      stage.removeEventListener("pointerup", onPointerUp);
+      stage.removeEventListener("pointercancel", onPointerUp);
+      img.removeEventListener("dblclick", onDblClick);
+    };
+  };
+
+  const ensureMediaLightbox = () => {
+    let box = document.getElementById("f9-media-lightbox");
+    if (box && !box.querySelector(".f9-lb-zin")) {
+      // lightbox antigo sem zoom — recria
+      try {
+        box.remove();
+      } catch (_) {}
+      box = null;
+    }
+    if (box) return box;
+    box = document.createElement("div");
+    box.id = "f9-media-lightbox";
+    box.innerHTML = `
+      <div class="f9-lb-backdrop" data-lb="close"></div>
+      <div class="f9-lb-stage">
+        <div class="f9-lb-media" data-el="media"></div>
+        <div class="f9-lb-bar">
+          <span class="f9-lb-zoomlabel">Zoom 100% · scroll para ampliar</span>
+          <button type="button" class="f9-lb-zout" data-lb="zoomout" title="Diminuir">−</button>
+          <button type="button" class="f9-lb-zin" data-lb="zoomin" title="Ampliar">+</button>
+          <button type="button" class="f9-lb-zreset" data-lb="zoomreset" title="Resetar zoom">1:1</button>
+          <button type="button" class="f9-lb-dl" data-lb="download">Baixar</button>
+          <button type="button" class="f9-lb-open" data-lb="open">Abrir</button>
+          <button type="button" class="f9-lb-close" data-lb="close">Fechar</button>
+        </div>
+      </div>`;
+    document.body.appendChild(box);
+    box.addEventListener("click", (e) => {
+      const act = e.target?.closest?.("[data-lb]")?.getAttribute("data-lb");
+      if (act === "close") closeMediaLightbox();
+      if (act === "open") {
+        const url = box.dataset.f9Url;
+        if (url) openMediaUrlFallback(url);
+      }
+      if (act === "download") {
+        const url = box.dataset.f9Url;
+        if (url) {
+          const fake = createDlButton(url);
+          requestDownloadMedia(url, fake);
+        }
+      }
+      if (act === "zoomin") setLbZoomAt((lbZoom.scale || 1) * 1.25);
+      if (act === "zoomout") setLbZoomAt((lbZoom.scale || 1) / 1.25);
+      if (act === "zoomreset") resetLbZoom();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (!box.classList.contains("is-open")) return;
+      if (e.key === "Escape") closeMediaLightbox();
+      if (e.key === "+" || e.key === "=") {
+        e.preventDefault();
+        setLbZoomAt((lbZoom.scale || 1) * 1.2);
+      }
+      if (e.key === "-" || e.key === "_") {
+        e.preventDefault();
+        setLbZoomAt((lbZoom.scale || 1) / 1.2);
+      }
+      if (e.key === "0") {
+        e.preventDefault();
+        resetLbZoom();
+      }
+    });
+    return box;
+  };
+
+  const closeMediaLightbox = () => {
+    const box = document.getElementById("f9-media-lightbox");
+    if (!box) return;
+    box.classList.remove("is-open");
+    const media = box.querySelector('[data-el="media"]');
+    if (media) {
+      try {
+        media._f9ZoomCleanup?.();
+      } catch (_) {}
+      media.classList.remove("is-zoomed", "is-panning");
+      media.innerHTML = "";
+    }
+    lbZoom = { scale: 1, x: 0, y: 0, img: null, stage: null, label: null, hint: null };
+    delete box.dataset.f9Url;
+  };
+
+  const openMediaLightbox = async (url, kind) => {
+    const box = ensureMediaLightbox();
+    const stage = box.querySelector('[data-el="media"]');
+    box.dataset.f9Url = url;
+    try {
+      stage._f9ZoomCleanup?.();
+    } catch (_) {}
+    stage.classList.remove("is-zoomed", "is-panning");
+    const zoomLabel = box.querySelector(".f9-lb-zoomlabel");
+    if (zoomLabel) {
+      zoomLabel.style.display = kind === "video" ? "none" : "";
+      zoomLabel.textContent = "Zoom 100% · scroll para ampliar";
+    }
+    box.querySelectorAll(".f9-lb-zin, .f9-lb-zout, .f9-lb-zreset").forEach((b) => {
+      b.style.display = kind === "video" ? "none" : "";
+    });
+    stage.innerHTML = `<div style="color:#94a3b8;padding:24px;font:13px Segoe UI,system-ui">Carregando…</div>`;
+    box.classList.add("is-open");
+    const mount = (src) => {
+      try {
+        stage._f9ZoomCleanup?.();
+      } catch (_) {}
+      stage.innerHTML = "";
+      if (kind === "video") {
+        const v = document.createElement("video");
+        v.src = src;
+        v.controls = true;
+        v.autoplay = true;
+        v.playsInline = true;
+        stage.appendChild(v);
+      } else {
+        const img = document.createElement("img");
+        img.src = src;
+        img.alt = "Pré-visualização";
+        stage.appendChild(img);
+        bindLightboxImageZoom(stage, img, box);
+      }
+    };
+    try {
+      let src = null;
+      try {
+        src = await fetchMediaPreviewUrl(url, kind);
+      } catch (_) {
+        src = url;
+      }
+      mount(src);
+      const mediaEl = stage.querySelector("img, video");
+      if (mediaEl) {
+        mediaEl.addEventListener(
+          "error",
+          async () => {
+            if (src !== url) {
+              stage.innerHTML = `<div style="color:#fecaca;padding:24px;font:13px Segoe UI,system-ui;text-align:center">Não foi possível carregar a mídia.<br><button type="button" data-lb="open" style="margin-top:10px;border:1px solid #64748b;background:#1e293b;color:#e2e8f0;border-radius:8px;padding:6px 12px;cursor:pointer">Abrir em nova aba</button></div>`;
+              return;
+            }
+            try {
+              const blobSrc = await fetchMediaPreviewUrl(url, kind);
+              mount(blobSrc);
+            } catch (_) {
+              stage.innerHTML = `<div style="color:#fecaca;padding:24px;font:13px Segoe UI,system-ui;text-align:center">Não foi possível carregar a mídia.<br><button type="button" data-lb="open" style="margin-top:10px;border:1px solid #64748b;background:#1e293b;color:#e2e8f0;border-radius:8px;padding:6px 12px;cursor:pointer">Abrir em nova aba</button></div>`;
+            }
+          },
+          { once: true }
+        );
+      }
+    } catch (_) {
+      stage.innerHTML = `<div style="color:#fecaca;padding:24px;font:13px Segoe UI,system-ui;text-align:center">Não foi possível carregar a mídia.</div>`;
+    }
+  };
+
+  const findNearbyRenderedMedia = (hostEl, url, kind) => {
+    try {
+      const root =
+        hostEl?.closest?.(".content, [class*='message'], [class*='Message'], [class*='bubble']") ||
+        hostEl?.parentElement;
+      if (!root) return "";
+      const clean = String(url || "").split("?")[0];
+      const leaf = clean.split("/").filter(Boolean).pop() || "";
+      const nodes = Array.from(root.querySelectorAll(kind === "video" ? "video" : "img"));
+      for (const n of nodes) {
+        if (n.closest?.(".f9-media-card, .f9-audio-player, #" + PANEL_ID)) continue;
+        const src = n.currentSrc || n.src || "";
+        if (!src || src.startsWith("data:") || src.startsWith("blob:")) continue;
+        const srcClean = src.split("?")[0];
+        const same =
+          src === url ||
+          srcClean === clean ||
+          (leaf && leaf.length >= 8 && srcClean.includes(leaf));
+        if (!same) continue;
+        if (kind === "video") {
+          if ((n.videoWidth || 0) > 0 || (n.readyState || 0) >= 1) return src;
+        } else if ((n.naturalWidth || 0) > 16) {
+          return src;
+        }
+      }
+    } catch (_) {}
+    return "";
+  };
+
+  const showPreviewFallback = (el, url, kind, retryFn) => {
+    el.innerHTML = "";
+    const wrap = document.createElement("div");
+    wrap.className = "f9-preview-fallback";
+    wrap.innerHTML = `<div>Prévia indisponível</div>
+      <div class="f9-preview-fallback-actions">
+        <button type="button" data-act="retry">Tentar de novo</button>
+        <button type="button" data-act="open">Abrir</button>
+      </div>`;
+    wrap.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const act = e.target?.closest?.("[data-act]")?.getAttribute("data-act");
+      if (act === "retry" && typeof retryFn === "function") retryFn();
+      if (act === "open") openMediaUrlFallback(url);
+    });
+    el.appendChild(wrap);
+  };
+
+  const loadPreviewInto = async (el, url, kind) => {
+    if (!el) return;
+    let attempt = 0;
+
+    const apply = (src, fromBlob) =>
+      new Promise((resolve, reject) => {
+        el.innerHTML = "";
+        let mediaEl;
+        let settled = false;
+        const done = (fn, arg) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          fn(arg);
+        };
+        if (kind === "video") {
+          mediaEl = document.createElement("video");
+          mediaEl.src = src;
+          mediaEl.muted = true;
+          mediaEl.preload = "metadata";
+          mediaEl.playsInline = true;
+          el.appendChild(mediaEl);
+          el.insertAdjacentHTML("beforeend", MEDIA_PLAY_BADGE);
+          mediaEl.addEventListener("loadeddata", () => {
+            try {
+              mediaEl.currentTime = 0.1;
+            } catch (_) {}
+          });
+        } else {
+          mediaEl = document.createElement("img");
+          mediaEl.src = src;
+          mediaEl.alt = "Imagem";
+          mediaEl.loading = "eager";
+          mediaEl.decoding = "async";
+          try {
+            mediaEl.referrerPolicy = "no-referrer-when-downgrade";
+          } catch (_) {}
+          el.appendChild(mediaEl);
+        }
+        try {
+          mediaEl.dataset.f9ImgDlDone = "1";
+        } catch (_) {}
+        const ok = () => done(resolve, true);
+        const fail = () => done(reject, new Error(fromBlob ? "blob-display" : "direct-display"));
+        mediaEl.addEventListener("load", ok, { once: true });
+        mediaEl.addEventListener("loadeddata", ok, { once: true });
+        mediaEl.addEventListener("error", fail, { once: true });
+        const timer = setTimeout(() => fail(), 22000);
+        if (kind !== "video" && mediaEl.complete && mediaEl.naturalWidth > 0) ok();
+      });
+
+    const run = async () => {
+      attempt += 1;
+      el.innerHTML = `<div style="padding:36px 12px;color:#64748b;font:12px Segoe UI,system-ui;text-align:center">Carregando prévia…</div>`;
+
+      // 1) mídia já renderizada no bubble (comum em chats ativos)
+      const nearby = findNearbyRenderedMedia(el, url, kind);
+      if (nearby) {
+        try {
+          await apply(nearby, false);
+          return;
+        } catch (_) {}
+      }
+
+      // 2) blob via GM/fetch primeiro — essencial no histórico (cookies 3rd-party bloqueados no <img>)
+      try {
+        const blobSrc = await fetchMediaPreviewUrl(url, kind);
+        await apply(blobSrc, true);
+        return;
+      } catch (e) {
+        console.warn("[Five9 Modelos] preview blob:", e);
+      }
+
+      // 3) URL direta como último recurso
+      try {
+        await apply(url, false);
+        return;
+      } catch (_) {}
+
+      showPreviewFallback(el, url, kind, () => {
+        mediaPreviewBlobCache.delete(url);
+        run();
+      });
+    };
+
+    run().catch((e) => {
+      console.warn("[Five9 Modelos] preview:", e);
+      showPreviewFallback(el, url, kind, () => {
+        mediaPreviewBlobCache.delete(url);
+        run();
+      });
+    });
+  };
+
+  const isComposerOrReplyArea = (el) => {
+    if (!el || !el.closest) return false;
+    try {
+      if (
+        el.closest(
+          '.f9-textarea-container, .container-reply-message, [data-f9-template="TextArea"], #f9-voice-wrap, #f9-voice-panel, #' +
+            AI_CARD_ID +
+            ", #" +
+            PANEL_ID
+        )
+      ) {
+        return true;
+      }
+      if (
+        el.querySelector?.(
+          '.f9-textarea-container, .container-reply-message, [data-f9-template="TextArea"], textarea[placeholder*="Digite aqui" i], textarea[placeholder*="mensagem" i]'
+        )
+      ) {
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  };
+
+  // Nunca subir até o painel/lista inteira — isso quebrava a caixa e jogava
+  // o player de áudio enviado para a esquerda (como se fosse do motorista).
+  const isMessageListContainer = (el) => {
+    if (!el) return true;
+    const cls = String(el.className || "");
+    const id = String(el.id || "");
+    if (/messages|message-list|message-thread|message-container|msg-list|chat-list|transcript|conversation-body|scroll/i.test(`${cls} ${id}`)) {
+      // "message-content" / "message-bubble" são ok; listas plurais não
+      if (!/message-content|message-bubble|msg-body|chat-message-bubble/i.test(cls)) return true;
+    }
+    try {
+      const kids = el.querySelectorAll?.(
+        "[class*='message-bubble' i], [class*='MessageBubble'], [class*='chat-message' i], [class*='msg-bubble' i]"
+      );
+      if (kids && kids.length >= 2) return true;
+    } catch (_) {}
+    return false;
+  };
+
+  const isSingleMessageBubbleEl = (el) => {
+    if (!el) return false;
+    const cls = String(el.className || "");
+    if (isMessageListContainer(el)) return false;
+    return /message-content|message-bubble|MessageContent|MessageBubble|msg-body|chat-message|bubble/i.test(cls);
+  };
+
+  const findSafeMessageBubble = (anchorEl) => {
+    if (!anchorEl) return null;
+    if (isComposerOrReplyArea(anchorEl)) return null;
+
+    let bubble =
+      anchorEl.closest(
+        ".content, [class*='message-content' i], [class*='MessageContent'], [class*='message-bubble' i], [class*='MessageBubble'], [class*='msg-body' i], [class*='msg-bubble' i], [class*='chat-message' i]"
+      ) || null;
+
+    // evita closest genérico em "[class*='bubble']" dentro de listas
+    if (bubble && isMessageListContainer(bubble)) bubble = null;
+
+    if (!bubble) bubble = anchorEl.parentElement;
+    if (!bubble || isComposerOrReplyArea(bubble) || isMessageListContainer(bubble)) {
+      return anchorEl.parentElement &&
+        !isComposerOrReplyArea(anchorEl.parentElement) &&
+        !isMessageListContainer(anchorEl.parentElement)
+        ? anchorEl.parentElement
+        : null;
+    }
+
+    try {
+      let el = bubble;
+      for (let i = 0; i < 2 && el && el.parentElement && el.parentElement !== document.body; i++) {
+        const parent = el.parentElement;
+        if (isComposerOrReplyArea(parent) || isMessageListContainer(parent)) break;
+        if (parent.querySelector?.('.f9-textarea-container, [data-f9-template="TextArea"], .container-reply-message')) {
+          break;
+        }
+        if (!isSingleMessageBubbleEl(parent)) break;
+        const h = parent.getBoundingClientRect?.().height || 0;
+        if (h > 420) break;
+        el = parent;
+        bubble = el;
+      }
+    } catch (_) {}
+
+    if (isComposerOrReplyArea(bubble) || isMessageListContainer(bubble)) return null;
+    return bubble;
+  };
+
+  const findFive9MessageActorRoot = (el) => {
+    if (!el || !el.closest) return null;
+    try {
+      return (
+        el.closest("[id^='agent.']") ||
+        el.closest("[id^='customer.']") ||
+        el.closest("[id^='contact.']") ||
+        el.closest("[id^='client.']") ||
+        el.closest("[id^='visitor.']") ||
+        null
+      );
+    } catch (_) {
+      return null;
+    }
+  };
+
+  const detectAudioMessageDir = (anchorEl, bubble) => {
+    // Sinal mais forte do Five9: id="agent.<id>.<ts>" vs customer/contact/...
+    const actor =
+      findFive9MessageActorRoot(anchorEl) ||
+      findFive9MessageActorRoot(bubble) ||
+      findFive9MessageActorRoot(bubble?.parentElement);
+    if (actor?.id) {
+      if (/^agent\./i.test(actor.id)) return "out";
+      if (/^(customer|contact|client|visitor|enduser)\./i.test(actor.id)) return "in";
+    }
+
+    const nodes = [anchorEl, bubble, bubble?.parentElement, anchorEl?.parentElement].filter(Boolean);
+    for (const el of nodes) {
+      if (typeof isLikelyOwnMessage === "function" && isLikelyOwnMessage(el, "")) return "out";
+    }
+    // sobe um pouco procurando outbound/inbound sem entrar na lista
+    let node = bubble || anchorEl;
+    for (let i = 0; i < 8 && node && node !== document.body; i++) {
+      if (isMessageListContainer(node) && i > 0) break;
+      if (node.id && /^agent\./i.test(node.id)) return "out";
+      if (node.id && /^(customer|contact|client|visitor|enduser)\./i.test(node.id)) return "in";
+      const meta = normalize(
+        [
+          node.className || "",
+          node.id || "",
+          node.getAttribute?.("data-testid") || "",
+          node.getAttribute?.("data-direction") || "",
+          node.getAttribute?.("aria-label") || "",
+        ].join(" ")
+      );
+      if (/(outbound|outgoing|sent|mine|self|from-agent|is-me|own-message|agent-message)/.test(meta)) {
+        return "out";
+      }
+      if (/(inbound|incoming|from-customer|from-contact|customer-message|client-message)/.test(meta)) {
+        return "in";
+      }
+      try {
+        const rect = node.getBoundingClientRect();
+        const parent = node.parentElement?.getBoundingClientRect?.();
+        if (parent && parent.width > 120 && rect.width > 40 && rect.width < parent.width * 0.92) {
+          const mid = parent.left + parent.width / 2;
+          const center = rect.left + rect.width / 2;
+          if (center > mid + 36) return "out";
+          if (center < mid - 36) return "in";
+        }
+        const bg = getComputedStyle(node).backgroundColor || "";
+        const m = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+        if (m) {
+          const r = +m[1];
+          const g = +m[2];
+          const b = +m[3];
+          // bolha azul típica do agente
+          if (b > 110 && b > r + 25 && b >= g && r < 140) return "out";
+        }
+      } catch (_) {}
+      node = node.parentElement;
+    }
+    return "in";
+  };
+
+  // Esconde legendas nativas redundantes ("Imagem enviada", "Menssagem de voz recebida!"…)
+  // quando já temos preview/player no bubble do chat.
+  const MEDIA_CAPTION_RE =
+    /^\s*(imagem\s+enviada|v[ií]deo\s+enviado|[aá]udio\s+enviado|mens+agem\s+de\s+voz\s+(recebida|enviada))!?\.?\s*$/i;
+
+  const hideRedundantMediaCaption = (bubble, kind) => {
+    if (!bubble || isSocialSidebarListItem(bubble) || isClearlySidebar(bubble)) return;
+    const prefer =
+      kind === "audio"
+        ? /^\s*([aá]udio\s+enviado|mens+agem\s+de\s+voz\s+(recebida|enviada))!?\.?\s*$/i
+        : kind === "video"
+          ? /^\s*v[ií]deo\s+enviado!?\.?\s*$/i
+          : /^\s*imagem\s+enviada!?\.?\s*$/i;
+
+    const tryHideEl = (el) => {
+      if (!el || !el.isConnected) return false;
+      if (el.classList?.contains("f9-media-caption-hidden")) return true;
+      if (el.closest?.(".f9-media-card, .f9-audio-host, .f9-audio-player, .f9-media-dl-wrap, #" + PANEL_ID)) {
+        return false;
+      }
+      // não esconde containers que ainda têm mídia/UI nossa ou links
+      if (
+        el.querySelector?.(
+          ".f9-media-card, .f9-audio-host, .f9-audio-player, a[href], img, video, audio, button, input, textarea"
+        )
+      ) {
+        return false;
+      }
+      const t = shortText(el);
+      if (!t || t.length > 64) return false;
+      if (!(prefer.test(t) || MEDIA_CAPTION_RE.test(t))) return false;
+      el.classList.add("f9-media-caption-hidden");
+      return true;
+    };
+
+    try {
+      bubble
+        .querySelectorAll("span, div, p, font, label, strong, em, b, i, small, h1, h2, h3, h4, h5, h6")
+        .forEach((el) => {
+          tryHideEl(el);
+        });
+    } catch (_) {}
+
+    // nós de texto soltos (sem wrapper) no bubble
+    try {
+      const walker = document.createTreeWalker(bubble, NodeFilter.SHOW_TEXT, {
+        acceptNode(node) {
+          const raw = String(node.nodeValue || "").replace(/\s+/g, " ").trim();
+          if (!raw || raw.length > 64) return NodeFilter.FILTER_REJECT;
+          if (!(prefer.test(raw) || MEDIA_CAPTION_RE.test(raw))) return NodeFilter.FILTER_REJECT;
+          const p = node.parentElement;
+          if (!p || p.closest(".f9-media-card, .f9-audio-host, .f9-audio-player, .f9-media-caption-hidden")) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          return NodeFilter.FILTER_ACCEPT;
+        },
+      });
+      const nodes = [];
+      while (walker.nextNode()) nodes.push(walker.currentNode);
+      nodes.forEach((tn) => {
+        const parent = tn.parentElement;
+        if (!parent) return;
+        const onlyText = shortText(parent) && MEDIA_CAPTION_RE.test(shortText(parent));
+        if (onlyText && !parent.querySelector("a, img, video, audio, button, .f9-media-card, .f9-audio-host")) {
+          parent.classList.add("f9-media-caption-hidden");
+        } else {
+          tn.nodeValue = "";
+        }
+      });
+    } catch (_) {}
+  };
+
+  const enhanceMediaPreview = (anchorEl, url) => {
+    if (!anchorEl || !url) return false;
+    if (anchorEl.dataset.f9MediaPreview === "1") return true;
+    if (anchorEl.closest(".f9-media-card")) {
+      anchorEl.dataset.f9MediaPreview = "1";
+      return true;
+    }
+    if (isOurUi(anchorEl) || isSocialSidebarListItem(anchorEl) || isClearlySidebar(anchorEl)) {
+      return false;
+    }
+    if (isComposerOrReplyArea(anchorEl)) return false;
+    const kind = mediaKindFromUrl(url);
+    if (kind !== "image" && kind !== "video") return false;
+
+    const bubble = findSafeMessageBubble(anchorEl);
+    if (!bubble) return false;
+
+    if (bubble.querySelector(`.f9-media-card[data-f9-url="${url.replace(/"/g, "")}"]`)) {
+      anchorEl.classList.add("f9-media-hidden-link");
+      anchorEl.dataset.f9MediaPreview = "1";
+      hideRedundantMediaCaption(bubble, kind);
+      return true;
+    }
+
+    const card = document.createElement("div");
+    card.className = "f9-media-card";
+    card.setAttribute("data-f9-media-card", "1");
+    card.setAttribute("data-f9-url", url);
+    card.setAttribute("data-kind", kind);
+    card.innerHTML = `
+      <button type="button" class="f9-media-thumb" aria-label="Ampliar ${kind === "video" ? "vídeo" : "imagem"}"></button>
+      <div class="f9-media-actions">
+        <span class="f9-media-hint">${kind === "video" ? "Vídeo" : "Imagem"} · clique para ampliar</span>
+      </div>`;
+    const thumb = card.querySelector(".f9-media-thumb");
+    const actions = card.querySelector(".f9-media-actions");
+    actions.appendChild(createDlButton(url));
+    thumb.addEventListener("click", (e) => {
+      if (e.target?.closest?.("[data-act]")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      openMediaLightbox(url, kind);
+    });
+    loadPreviewInto(thumb, url, kind);
+    try {
+      if (anchorEl.parentNode === bubble) {
+        anchorEl.insertAdjacentElement("afterend", card);
+      } else {
+        bubble.appendChild(card);
+      }
+    } catch (_) {
+      bubble.appendChild(card);
+    }
+    anchorEl.classList.add("f9-media-hidden-link");
+    anchorEl.dataset.f9MediaPreview = "1";
+    try {
+      const wrap = anchorEl.closest(".f9-media-dl-wrap");
+      wrap?.querySelectorAll("button.f9-img-dl-btn").forEach((b) => b.remove());
+    } catch (_) {}
+    hideRedundantMediaCaption(bubble, kind);
+    return true;
+  };
+
   const wrapAnchorForDownload = (anchorEl) => {
     if (!anchorEl || !anchorEl.parentNode) return null;
     let wrap = anchorEl.closest(".f9-media-dl-wrap");
@@ -4448,11 +6129,19 @@
   const attachButtonNear = (el, url) => {
     if (!el || !url || !el.isConnected) return false;
     if (!isAllowedChatTarget(el)) return false;
+    // já tem card de preview: só o Baixar do rodapé
+    if (el.closest?.(".f9-media-card, #f9-media-lightbox, .f9-audio-player, .f9-audio-host")) {
+      return true;
+    }
     try {
+      const kind = mediaKindFromUrl(url);
       const anchor =
         el.tagName === "A"
           ? el
           : el.closest?.("a[href]") || el;
+      if ((kind === "image" || kind === "video") && anchor && anchor.tagName === "A") {
+        if (enhanceMediaPreview(anchor, url)) return true;
+      }
       ensureButtonRow(anchor, url);
       return true;
     } catch (e) {
@@ -4493,10 +6182,609 @@
     });
   };
 
+  /* ── Player de áudio no chat ─────────────────────────────── */
+
+  const AUDIO_PLAY_ICON = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.14v13.72L19 12 8 5.14z"/></svg>`;
+  const AUDIO_PAUSE_ICON = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 5h4v14H6V5zm8 0h4v14h-4V5z"/></svg>`;
+  const AUDIO_OPEN_ICON = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M14 5h5v5M19 5l-9 9M10 5H5v14h14v-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+  const audioBlobCache = new Map();
+  let audioDock = null;
+  let audioEngine = null; // <audio> persistente no dock
+  let audioNowPlaying = { url: "", title: "Áudio", contact: "", chatKey: "" };
+  let audioSeeking = false;
+  let audioDockWatchTimer = 0;
+
+  const isAudioUrl = (raw) => {
+    const url = String(raw || "");
+    if (!url) return false;
+    if (AUDIO_EXT_RE.test(url)) return true;
+    if (ANEXOS_RE.test(url) && /\.(oga|ogg|opus|mp3|m4a|wav|aac|amr|weba|flac)(?:$|[?#])/i.test(url))
+      return true;
+    return false;
+  };
+
+  const formatAudioTime = (sec) => {
+    if (!Number.isFinite(sec) || sec < 0) return "0:00";
+    const s = Math.floor(sec % 60);
+    const m = Math.floor(sec / 60);
+    return m + ":" + String(s).padStart(2, "0");
+  };
+
+  const normalizeAudioChatKey = (s) =>
+    String(s || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 120);
+
+  const getAudioContactHint = () => {
+    try {
+      const header = document.querySelector(
+        '[class*="conversation-header"], [class*="ChatHeader"], [class*="interaction-header"], [class*="media-header"]'
+      );
+      const t = ((header && (header.innerText || header.textContent)) || "")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (!t) return "";
+      return t
+        .replace(/^whatsapp\s+/i, "")
+        .split(/TRANSFERIR|DEFINIR|INTERA|CONTATO|HISTOR|CONECTOR/i)[0]
+        .trim()
+        .slice(0, 42);
+    } catch (_) {
+      return "";
+    }
+  };
+
+  const getCurrentAudioChatKey = () => {
+    const hint = getAudioContactHint();
+    if (hint) return normalizeAudioChatKey(hint);
+    try {
+      const selected = document.querySelector(
+        '[class*="conversation"][class*="selected"], [class*="Conversation"][class*="selected"], ' +
+          '[class*="chat-list"] .active, [class*="ConversationList"] .active'
+      );
+      const t = ((selected && (selected.innerText || selected.textContent)) || "")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (t) return normalizeAudioChatKey(t.slice(0, 120));
+    } catch (_) {}
+    return "";
+  };
+
+  const shouldShowAudioDock = () => {
+    const a = audioEngine;
+    if (!a || !audioNowPlaying.url) return false;
+    if (a.ended) return false;
+    const active = !a.paused || (a.currentTime || 0) > 0.12;
+    if (!active) return false;
+    const source = normalizeAudioChatKey(audioNowPlaying.chatKey || audioNowPlaying.contact);
+    if (!source) return true;
+    const current = getCurrentAudioChatKey();
+    if (!current) return true;
+    // só no chat de OUTRO motorista
+    return current !== source;
+  };
+
+  const fetchAudioBlobUrl = (url) => {
+    if (audioBlobCache.has(url)) return Promise.resolve(audioBlobCache.get(url));
+    return new Promise((resolve, reject) => {
+      if (typeof GM_xmlhttpRequest !== "function") {
+        reject(new Error("GM_xmlhttpRequest indisponível"));
+        return;
+      }
+      GM_xmlhttpRequest({
+        method: "GET",
+        url,
+        responseType: "arraybuffer",
+        timeout: 120000,
+        anonymous: false,
+        headers: { Accept: "audio/*,*/*;q=0.8" },
+        onload: (res) => {
+          try {
+            if (res.status < 200 || res.status >= 300) throw new Error("HTTP " + res.status);
+            const buf = res.response;
+            if (!buf || !buf.byteLength) throw new Error("vazio");
+            const bytes = new Uint8Array(buf);
+            let head = "";
+            for (let i = 0; i < Math.min(32, bytes.length); i++) head += String.fromCharCode(bytes[i]);
+            if (/<!doctype|<html/i.test(head)) throw new Error("HTML");
+            const mime = /\.mp3(?:$|[?#])/i.test(url)
+              ? "audio/mpeg"
+              : /\.m4a(?:$|[?#])/i.test(url)
+                ? "audio/mp4"
+                : /\.wav(?:$|[?#])/i.test(url)
+                  ? "audio/wav"
+                  : "audio/ogg";
+            const blob = new Blob([buf], { type: mime });
+            const obj = URL.createObjectURL(blob);
+            audioBlobCache.set(url, obj);
+            resolve(obj);
+          } catch (e) {
+            reject(e);
+          }
+        },
+        onerror: () => reject(new Error("rede")),
+        ontimeout: () => reject(new Error("timeout")),
+      });
+    });
+  };
+
+  const syncAllAudioUis = () => {
+    const a = audioEngine;
+    if (!a) return;
+    const playing = !a.paused && !a.ended;
+    const cur = a.currentTime || 0;
+    const dur = Number.isFinite(a.duration) ? a.duration : 0;
+    const timeTxt = dur
+      ? formatAudioTime(cur) + " / " + formatAudioTime(dur)
+      : formatAudioTime(cur);
+    const seekVal = dur > 0 ? String(Math.round((cur / dur) * 1000)) : "0";
+    const url = audioNowPlaying.url;
+
+    document.querySelectorAll(".f9-audio-player").forEach((root) => {
+      const isCurrent = root.getAttribute("data-f9-audio-url") === url;
+      const playBtn = root.querySelector(".f9-audio-play");
+      const seek = root.querySelector(".f9-audio-seek");
+      const timeEl = root.querySelector(".f9-audio-time");
+      const titleEl = root.querySelector(".f9-audio-title");
+      if (!playBtn) return;
+      if (isCurrent) {
+        playBtn.innerHTML = playing ? AUDIO_PAUSE_ICON : AUDIO_PLAY_ICON;
+        playBtn.setAttribute("aria-label", playing ? "Pausar áudio" : "Reproduzir áudio");
+        root.setAttribute("data-state", playing ? "playing" : "ready");
+        if (timeEl) timeEl.textContent = timeTxt;
+        if (seek && !audioSeeking) seek.value = seekVal;
+        if (titleEl && titleEl.textContent === "Carregando…") titleEl.textContent = "Áudio";
+      } else if (root.getAttribute("data-state") === "playing") {
+        playBtn.innerHTML = AUDIO_PLAY_ICON;
+        root.setAttribute("data-state", "ready");
+      }
+    });
+
+    if (audioDock) {
+      const dockTime = audioDock.querySelector(".f9-audio-dock-time");
+      const dockTitle = audioDock.querySelector(".f9-audio-dock-title");
+      const dockPlay = audioDock.querySelector(".f9-audio-play");
+      const dockSeek = audioDock.querySelector(".f9-audio-seek");
+      if (dockTime) dockTime.textContent = timeTxt;
+      if (dockTitle) {
+        dockTitle.textContent = audioNowPlaying.contact
+          ? audioNowPlaying.contact
+          : audioNowPlaying.title || "Áudio";
+      }
+      if (dockPlay) {
+        dockPlay.innerHTML = playing ? AUDIO_PAUSE_ICON : AUDIO_PLAY_ICON;
+      }
+      if (dockSeek && !audioSeeking && dur > 0) dockSeek.value = seekVal;
+      audioDock.setAttribute("data-state", playing ? "playing" : "paused");
+      audioDock.classList.toggle("is-show", shouldShowAudioDock());
+    }
+  };
+
+  const ensureAudioDock = () => {
+    if (audioDock && audioDock.isConnected && audioEngine) return audioDock;
+    let el = document.getElementById("f9-audio-dock");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "f9-audio-dock";
+      el.innerHTML = `
+        <div class="f9-audio-dock-inner">
+          <span class="f9-audio-dock-pulse" aria-hidden="true"></span>
+          <button type="button" class="f9-audio-play" aria-label="Reproduzir/Pausar">${AUDIO_PLAY_ICON}</button>
+          <div class="f9-audio-dock-text">
+            <div class="f9-audio-dock-label">Áudio em reprodução</div>
+            <div class="f9-audio-dock-title">Áudio</div>
+            <div class="f9-audio-dock-time">0:00</div>
+            <input class="f9-audio-seek" type="range" min="0" max="1000" value="0" step="1" aria-label="Progresso" />
+          </div>
+          <button type="button" class="f9-audio-dock-close" title="Fechar" aria-label="Fechar">×</button>
+        </div>
+        <audio id="f9-audio-engine" preload="metadata" playsinline></audio>`;
+      document.body.appendChild(el);
+    }
+    audioDock = el;
+    audioEngine = el.querySelector("#f9-audio-engine") || el.querySelector("audio");
+
+    if (!el.dataset.f9Bound) {
+      el.dataset.f9Bound = "1";
+      const playBtn = el.querySelector(".f9-audio-play");
+      const seek = el.querySelector(".f9-audio-seek");
+      const closeBtn = el.querySelector(".f9-audio-dock-close");
+
+      playBtn?.addEventListener("click", async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!audioEngine || !audioNowPlaying.url) return;
+        try {
+          if (!audioEngine.paused) audioEngine.pause();
+          else await audioEngine.play();
+          syncAllAudioUis();
+        } catch (_) {}
+      });
+
+      seek?.addEventListener("pointerdown", () => {
+        audioSeeking = true;
+      });
+      seek?.addEventListener("pointerup", () => {
+        audioSeeking = false;
+      });
+      seek?.addEventListener("input", () => {
+        if (!audioEngine || !Number.isFinite(audioEngine.duration) || audioEngine.duration <= 0) return;
+        audioEngine.currentTime = (Number(seek.value) / 1000) * audioEngine.duration;
+        syncAllAudioUis();
+      });
+
+      closeBtn?.addEventListener("click", (e) => {
+        e.preventDefault();
+        stopAudioDock(true);
+      });
+
+      audioEngine.addEventListener("timeupdate", syncAllAudioUis);
+      audioEngine.addEventListener("play", syncAllAudioUis);
+      audioEngine.addEventListener("pause", syncAllAudioUis);
+      audioEngine.addEventListener("ended", () => {
+        syncAllAudioUis();
+        // esconde o dock ao terminar
+        setTimeout(() => {
+          if (audioEngine && audioEngine.ended) stopAudioDock(false);
+        }, 400);
+      });
+      audioEngine.addEventListener("loadedmetadata", syncAllAudioUis);
+    }
+    return el;
+  };
+
+  const stopAudioDock = (pauseHard) => {
+    try {
+      if (audioEngine) {
+        audioEngine.pause();
+        if (pauseHard) {
+          audioEngine.removeAttribute("src");
+          audioEngine.load();
+          audioNowPlaying = { url: "", title: "Áudio", contact: "", chatKey: "" };
+        }
+      }
+    } catch (_) {}
+    if (audioDock) audioDock.classList.remove("is-show");
+    if (pauseHard && audioDockWatchTimer) {
+      clearInterval(audioDockWatchTimer);
+      audioDockWatchTimer = 0;
+    }
+    syncAllAudioUis();
+  };
+
+  const ensureAudioSource = async (url) => {
+    ensureAudioDock();
+    if (!audioEngine) throw new Error("engine missing");
+    if (audioNowPlaying.url === url && audioEngine.src) return;
+    audioNowPlaying.url = url;
+    // tenta direto
+    try {
+      audioEngine.src = url;
+      await new Promise((resolve, reject) => {
+        let settled = false;
+        const ok = () => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          resolve();
+        };
+        const bad = () => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(new Error("direct fail"));
+        };
+        const cleanup = () => {
+          audioEngine.removeEventListener("loadedmetadata", ok);
+          audioEngine.removeEventListener("canplay", ok);
+          audioEngine.removeEventListener("error", bad);
+        };
+        audioEngine.addEventListener("loadedmetadata", ok);
+        audioEngine.addEventListener("canplay", ok);
+        audioEngine.addEventListener("error", bad);
+        setTimeout(() => {
+          if (!settled) bad();
+        }, 2800);
+      });
+      return;
+    } catch (_) {}
+    const blobUrl = await fetchAudioBlobUrl(url);
+    audioEngine.src = blobUrl;
+    await new Promise((resolve, reject) => {
+      audioEngine.addEventListener("loadedmetadata", () => resolve(), { once: true });
+      audioEngine.addEventListener("error", () => reject(new Error("blob fail")), { once: true });
+    });
+  };
+
+  const playAudioUrl = async (url, opts = {}) => {
+    ensureAudioDock();
+    const contact = opts.contact || getAudioContactHint() || "Áudio";
+    audioNowPlaying.title = opts.title || "Áudio";
+    audioNowPlaying.contact = contact;
+    audioNowPlaying.chatKey =
+      opts.chatKey || normalizeAudioChatKey(contact) || getCurrentAudioChatKey();
+    await ensureAudioSource(url);
+    await audioEngine.play();
+    if (!audioDockWatchTimer) {
+      audioDockWatchTimer = setInterval(syncAllAudioUis, 700);
+    }
+    syncAllAudioUis();
+  };
+
+  const toggleAudioUrl = async (url, opts = {}) => {
+    ensureAudioDock();
+    if (audioNowPlaying.url === url && audioEngine && !audioEngine.paused) {
+      audioEngine.pause();
+      syncAllAudioUis();
+      return;
+    }
+    await playAudioUrl(url, opts);
+  };
+
+  const createAudioPlayer = (url) => {
+    const root = document.createElement("div");
+    root.className = "f9-audio-player";
+    root.setAttribute("data-f9-audio", "1");
+    root.setAttribute("data-f9-audio-url", url);
+    root.setAttribute("data-state", "idle");
+    root.innerHTML = `
+      <button type="button" class="f9-audio-play" aria-label="Reproduzir áudio">${AUDIO_PLAY_ICON}</button>
+      <div class="f9-audio-body">
+        <div class="f9-audio-meta">
+          <span class="f9-audio-title">Áudio</span>
+          <span class="f9-audio-time">0:00</span>
+        </div>
+        <input class="f9-audio-seek" type="range" min="0" max="1000" value="0" step="1" aria-label="Progresso" />
+      </div>
+      <button type="button" class="f9-audio-open" title="Abrir original" aria-label="Abrir original">${AUDIO_OPEN_ICON}</button>`;
+
+    const playBtn = root.querySelector(".f9-audio-play");
+    const seek = root.querySelector(".f9-audio-seek");
+    const titleEl = root.querySelector(".f9-audio-title");
+    const openBtn = root.querySelector(".f9-audio-open");
+
+    playBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const defaultTitle = "Áudio";
+      try {
+        playBtn.disabled = true;
+        titleEl.textContent = "Carregando…";
+        root.setAttribute("data-state", "loading");
+        await toggleAudioUrl(url, { contact: getAudioContactHint() });
+        titleEl.textContent = defaultTitle;
+      } catch (err) {
+        console.warn("[Five9 Modelos] áudio:", err);
+        titleEl.textContent = "Falha ao tocar";
+        root.setAttribute("data-state", "error");
+      } finally {
+        playBtn.disabled = false;
+        syncAllAudioUis();
+      }
+    });
+
+    seek.addEventListener("pointerdown", () => {
+      audioSeeking = true;
+    });
+    seek.addEventListener("pointerup", () => {
+      audioSeeking = false;
+    });
+    seek.addEventListener("input", () => {
+      ensureAudioDock();
+      if (!audioEngine || audioNowPlaying.url !== url) return;
+      if (!Number.isFinite(audioEngine.duration) || audioEngine.duration <= 0) return;
+      audioEngine.currentTime = (Number(seek.value) / 1000) * audioEngine.duration;
+      syncAllAudioUis();
+    });
+
+    openBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        if (typeof GM_openInTab === "function") GM_openInTab(url, { active: true, insert: true });
+        else window.open(url, "_blank", "noopener");
+      } catch (_) {
+        window.open(url, "_blank");
+      }
+    });
+
+    return root;
+  };
+
+  const enhanceAudioAnchor = (anchorEl, url) => {
+    if (!anchorEl || !url) return false;
+    const applyDir = (host, bubble) => {
+      if (!host) return;
+      const dir = detectAudioMessageDir(anchorEl, bubble);
+      host.setAttribute("data-dir", dir);
+      // reprodutor sempre no visual/padrão; só o card (.content) fica azul quando out
+      const titleEl = host.querySelector(".f9-audio-title");
+      if (titleEl && !/carregando|falha/i.test(titleEl.textContent || "")) {
+        titleEl.textContent = "Áudio";
+      }
+      try {
+        const container =
+          host.closest?.(".message-container") ||
+          bubble?.closest?.(".message-container") ||
+          findFive9MessageActorRoot(host)?.closest?.(".message-container");
+        if (container) {
+          container.classList.toggle("f9-agent-audio-out", dir === "out");
+        }
+      } catch (_) {}
+    };
+
+    // já processado: ainda corrige direção (ex.: id agent.* que antes ia como "in")
+    if (anchorEl.dataset.f9AudioDone === "1") {
+      const bub = findSafeMessageBubble(anchorEl);
+      const host =
+        (anchorEl.nextElementSibling?.classList?.contains("f9-audio-host") &&
+          anchorEl.nextElementSibling) ||
+        bub?.querySelector?.(".f9-audio-host") ||
+        anchorEl.closest?.(".f9-audio-host");
+      if (host) applyDir(host, bub);
+      if (bub) hideRedundantMediaCaption(bub, "audio");
+      return true;
+    }
+    if (anchorEl.closest(".f9-audio-player, .f9-audio-host")) {
+      const host = anchorEl.closest(".f9-audio-host") || anchorEl.closest(".f9-audio-player");
+      const bub = findSafeMessageBubble(anchorEl);
+      applyDir(host, bub);
+      anchorEl.dataset.f9AudioDone = "1";
+      return true;
+    }
+    if (isOurUi(anchorEl) || isSocialSidebarListItem(anchorEl) || isClearlySidebar(anchorEl)) {
+      anchorEl.dataset.f9AudioDone = "1";
+      return false;
+    }
+    if (isComposerOrReplyArea(anchorEl)) {
+      anchorEl.dataset.f9AudioDone = "1";
+      return false;
+    }
+    const next = anchorEl.nextElementSibling;
+    if (next && next.classList && (next.classList.contains("f9-audio-player") || next.classList.contains("f9-audio-host"))) {
+      anchorEl.classList.add("f9-audio-hidden-link");
+      anchorEl.dataset.f9AudioDone = "1";
+      const bub = findSafeMessageBubble(anchorEl);
+      const host = next.classList.contains("f9-audio-host") ? next : next.closest?.(".f9-audio-host") || next;
+      applyDir(host, bub);
+      if (bub) hideRedundantMediaCaption(bub, "audio");
+      return true;
+    }
+    const bubble = findSafeMessageBubble(anchorEl);
+    if (!bubble) {
+      anchorEl.dataset.f9AudioDone = "1";
+      return false;
+    }
+    // se já existe player neste bubble para a mesma URL, não duplica
+    const safeUrl = String(url).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    if (bubble.querySelector(`.f9-audio-player[data-f9-audio-url="${safeUrl}"]`)) {
+      anchorEl.classList.add("f9-audio-hidden-link");
+      anchorEl.dataset.f9AudioDone = "1";
+      const existing = bubble.querySelector(`.f9-audio-player[data-f9-audio-url="${safeUrl}"]`);
+      applyDir(existing?.closest?.(".f9-audio-host") || existing, bubble);
+      hideRedundantMediaCaption(bubble, "audio");
+      return true;
+    }
+    const host = document.createElement("div");
+    host.className = "f9-audio-host";
+    host.appendChild(createAudioPlayer(url));
+    applyDir(host, bubble);
+    try {
+      // Insere sempre perto do link, no mesmo bubble — nunca num container da lista
+      if (anchorEl.parentNode && bubble.contains(anchorEl)) {
+        anchorEl.insertAdjacentElement("afterend", host);
+      } else {
+        bubble.appendChild(host);
+      }
+    } catch (_) {
+      try {
+        bubble.appendChild(host);
+      } catch (__) {}
+    }
+    anchorEl.classList.add("f9-audio-hidden-link");
+    anchorEl.dataset.f9AudioDone = "1";
+    hideRedundantMediaCaption(bubble, "audio");
+    return true;
+  };
+
+  const sidebarMediaLabel = (url) => {
+    if (isAudioUrl(url)) return "Enviou um áudio";
+    const kind = mediaKindFromUrl(url);
+    if (kind === "video") return "Enviou um vídeo";
+    if (kind === "image") return "Enviou uma imagem";
+    return "Enviou um arquivo";
+  };
+
+  const summarizeSidebarMediaAnchor = (anchorEl) => {
+    if (!anchorEl || !anchorEl.isConnected) return;
+    const href = anchorEl.href || anchorEl.getAttribute("href") || "";
+    if (!href || !(looksLikeMediaUrl(href) || maybeMediaUrl(href) || isAudioUrl(href))) return;
+
+    // remove cards/players que já vazaram para a lista
+    try {
+      const root =
+        anchorEl.closest(".social-sidebar-item, [id^='lhs-item-'], .social-sidebar-item-content") ||
+        anchorEl.parentElement;
+      root?.querySelectorAll?.(".f9-media-card, .f9-audio-host, .f9-audio-player, .f9-media-dl-wrap, button.f9-img-dl-btn").forEach((n) => {
+        try {
+          n.remove();
+        } catch (_) {}
+      });
+    } catch (_) {}
+
+    const label = sidebarMediaLabel(href);
+    const parentText = shortText(anchorEl.parentElement || anchorEl);
+    if (/enviou uma imagem|enviou um v[ií]deo|enviou um [aá]udio|imagem enviada|v[ií]deo enviado/i.test(parentText)) {
+      anchorEl.classList.add("f9-media-hidden-link");
+      return;
+    }
+    // troca o link feio por texto curto no card da lista
+    const span = document.createElement("span");
+    span.className = "f9-sidebar-media-label";
+    span.textContent = label;
+    span.style.cssText = "color:#64748b;font:12px/1.3 Segoe UI,system-ui,sans-serif;";
+    try {
+      anchorEl.replaceWith(span);
+    } catch (_) {
+      anchorEl.classList.add("f9-media-hidden-link");
+      if (!anchorEl.nextElementSibling?.classList?.contains("f9-sidebar-media-label")) {
+        anchorEl.insertAdjacentElement("afterend", span);
+      }
+    }
+  };
+
+  const cleanupSidebarMediaPreviews = () => {
+    document
+      .querySelectorAll(
+        ".social-sidebar-item .f9-media-card, .social-sidebar-item .f9-audio-host, .social-sidebar-item .f9-audio-player, [id^='lhs-item-'] .f9-media-card, [id^='lhs-item-'] .f9-audio-host, [id^='lhs-item-'] .f9-audio-player, .agent-screen-social-sidebar-item-bottom .f9-media-card, .agent-screen-social-sidebar-item-bottom .f9-audio-host"
+      )
+      .forEach((n) => {
+        try {
+          const host =
+            n.closest(".agent-screen-social-sidebar-item-bottom, .social-sidebar-item-content, .social-sidebar-item") ||
+            n.parentElement;
+          n.remove();
+          if (host && !/enviou uma imagem|enviou um v[ií]deo|enviou um [aá]udio|imagem enviada/i.test(shortText(host))) {
+            // se sobrou só URL/anexo sem rótulo, adiciona texto
+            const hasLabel = host.querySelector(".f9-sidebar-media-label");
+            if (!hasLabel) {
+              const span = document.createElement("span");
+              span.className = "f9-sidebar-media-label";
+              span.textContent = "Enviou uma imagem";
+              span.style.cssText = "color:#64748b;font:12px/1.3 Segoe UI,system-ui,sans-serif;";
+              host.appendChild(span);
+            }
+          }
+        } catch (_) {}
+      });
+    document
+      .querySelectorAll(
+        ".social-sidebar-item button.f9-img-dl-btn, [id^='lhs-item-'] button.f9-img-dl-btn, .agent-screen-social-sidebar-item-bottom button.f9-img-dl-btn"
+      )
+      .forEach((b) => {
+        try {
+          b.remove();
+        } catch (_) {}
+      });
+  };
+
   const processAnchor = (a) => {
-    if (!a || a.dataset.f9ImgDlDone === "1") return;
+    if (!a) return;
     if (isOurUi(a)) {
       a.dataset.f9ImgDlDone = "1";
+      return;
+    }
+    // lista BATE-PAPO: nunca preview/player — só rótulo curto
+    if (isSocialSidebarListItem(a) || isClearlySidebar(a)) {
+      summarizeSidebarMediaAnchor(a);
+      a.dataset.f9ImgDlDone = "1";
+      a.dataset.f9MediaPreview = "1";
+      a.dataset.f9AudioDone = "1";
       return;
     }
     const href = a.href || a.getAttribute("href") || "";
@@ -4504,16 +6792,24 @@
       a.dataset.f9ImgDlDone = "1";
       return;
     }
-    if (NOT_MEDIA_HOST_RE.test(href) || AUDIO_EXT_RE.test(href)) {
+    // áudio: sempre tenta o player (mesmo se já marcado no download de mídia)
+    if (isAudioUrl(href)) {
+      enhanceAudioAnchor(a, href);
       a.dataset.f9ImgDlDone = "1";
       return;
     }
-    // só descarta lista quando NÃO parece mídia (evita perder anexos no chat)
-    if (isClearlySidebar(a) && !looksLikeMediaUrl(href) && !ANEXOS_RE.test(href)) {
-      a.dataset.f9ImgDlDone = "1";
-      return;
+    // imagem/vídeo: preview só no chat aberto
+    if (looksLikeMediaUrl(href) || maybeMediaUrl(href)) {
+      const kind = mediaKindFromUrl(href);
+      if ((kind === "image" || kind === "video") && a.dataset.f9MediaPreview !== "1") {
+        if (enhanceMediaPreview(a, href)) {
+          a.dataset.f9ImgDlDone = "1";
+          return;
+        }
+      }
     }
-    if (isClearlySidebar(a) && isInteractionPreviewCard(a) && !CHAT_MEDIA_TEXT_RE.test(shortText(a))) {
+    if (a.dataset.f9ImgDlDone === "1") return;
+    if (NOT_MEDIA_HOST_RE.test(href)) {
       a.dataset.f9ImgDlDone = "1";
       return;
     }
@@ -4526,6 +6822,14 @@
 
   const processImg = (img) => {
     if (!img || img.dataset.f9ImgDlDone === "1") return;
+    if (img.closest?.(".f9-media-card, #f9-media-lightbox, .f9-audio-player, #" + PANEL_ID)) {
+      img.dataset.f9ImgDlDone = "1";
+      return;
+    }
+    if (isSocialSidebarListItem(img) || isClearlySidebar(img)) {
+      img.dataset.f9ImgDlDone = "1";
+      return;
+    }
     if (!isAllowedChatTarget(img)) {
       img.dataset.f9ImgDlDone = "1";
       return;
@@ -4573,13 +6877,30 @@
       if (!parent || isOurUi(parent) || isClearlySidebar(parent)) continue;
       if (parent.closest("a[href], button, script, style, textarea, input")) continue;
       if (parent.dataset.f9ImgDlText === "1") continue;
+      const found = [];
       MEDIA_URL_IN_TEXT_RE.lastIndex = 0;
-      const m = MEDIA_URL_IN_TEXT_RE.exec(text);
-      if (!m) continue;
-      hits.push({ parent, url: m[0] });
+      let m;
+      while ((m = MEDIA_URL_IN_TEXT_RE.exec(text))) found.push(m[0]);
+      ANEXOS_URL_IN_TEXT_RE.lastIndex = 0;
+      while ((m = ANEXOS_URL_IN_TEXT_RE.exec(text))) found.push(m[0]);
+      const uniq = [...new Set(found)];
+      if (!uniq.length) continue;
+      uniq.forEach((url) => hits.push({ parent, url }));
     }
     hits.forEach(({ parent, url }) => {
       parent.dataset.f9ImgDlText = "1";
+      if (isAudioUrl(url)) {
+        // cria âncora temporária invisível só para encaixar o player
+        const a = document.createElement("a");
+        a.href = url;
+        a.target = "_blank";
+        a.textContent = url;
+        a.className = "f9-audio-hidden-link";
+        parent.appendChild(document.createElement("br"));
+        parent.appendChild(a);
+        enhanceAudioAnchor(a, url);
+        return;
+      }
       attachButtonNear(parent, url);
     });
   };
@@ -4599,7 +6920,35 @@
   };
 
   const cleanupBadButtons = () => {
+    cleanupSidebarMediaPreviews();
+    // remove players/cards que vazaram para perto da caixa de mensagem
+    document.querySelectorAll(".f9-audio-host, .f9-media-card").forEach((n) => {
+      try {
+        if (isComposerOrReplyArea(n) || n.closest?.(".f9-textarea-container, .container-reply-message, [data-f9-template='TextArea']")) {
+          n.remove();
+        }
+      } catch (_) {}
+    });
     document.querySelectorAll("button.f9-img-dl-btn").forEach((btn) => {
+      const card = btn.closest(".f9-media-card");
+      // no card de preview só pode existir o Baixar do rodapé (.f9-media-actions)
+      if (card && !btn.closest(".f9-media-actions")) {
+        const wrap = btn.closest(".f9-media-dl-wrap");
+        btn.remove();
+        if (wrap && wrap.closest(".f9-media-card") && !wrap.querySelector(".f9-img-dl-btn")) {
+          while (wrap.firstChild) wrap.parentNode?.insertBefore(wrap.firstChild, wrap);
+          wrap.remove();
+        }
+        return;
+      }
+      if (btn.closest("#f9-media-lightbox")) {
+        btn.remove();
+        return;
+      }
+      if (isSocialSidebarListItem(btn)) {
+        btn.remove();
+        return;
+      }
       const wrap = btn.closest(".f9-media-dl-wrap");
       const host = wrap || btn.closest(".f9-media-dl-host") || btn.parentElement || btn;
       if (!isAllowedChatTarget(btn) || isInteractionPreviewCard(host)) {
@@ -4607,11 +6956,18 @@
         host.classList?.remove?.("f9-media-dl-host");
         btn.remove();
         if (wrap && !wrap.querySelector(".f9-img-dl-btn")) {
-          // unwrap: move children out
           while (wrap.firstChild) wrap.parentNode?.insertBefore(wrap.firstChild, wrap);
           wrap.remove();
         }
         if (row && !row.querySelector(".f9-img-dl-btn")) row.remove();
+      }
+    });
+    // cards de preview que vazaram para a lista
+    document.querySelectorAll(".f9-media-card").forEach((card) => {
+      if (isSocialSidebarListItem(card) || isClearlySidebar(card)) {
+        try {
+          card.remove();
+        } catch (_) {}
       }
     });
   };
@@ -4625,13 +6981,16 @@
         const body = doc.body;
         if (!body) continue;
         const anchors = body.querySelectorAll(
-          "a[href]:not([data-f9-img-dl-done='1']), a[href*='anexos'], a[href*='.jpg'], a[href*='.jpeg'], a[href*='.png'], a[href*='.mp4'], a[href*='.webp']"
+          "a[href]:not([data-f9-img-dl-done='1']), a[href*='anexos'], a[href*='.jpg'], a[href*='.jpeg'], a[href*='.png'], a[href*='.mp4'], a[href*='.webp'], a[href*='.oga'], a[href*='.ogg'], a[href*='.opus'], a[href*='.mp3'], a[href*='.m4a']"
         );
         for (let i = 0; i < anchors.length; i++) processAnchor(anchors[i]);
         const imgs = body.querySelectorAll("img[src]:not([data-f9-img-dl-done='1'])");
         for (let j = 0; j < imgs.length; j++) processImg(imgs[j]);
         processTextMediaLinks(body);
       }
+      try {
+        syncAllAudioUis();
+      } catch (_) {}
     } catch (e) {
       console.warn("[Five9 Modelos] scan mídia:", e);
     }
@@ -4644,6 +7003,7 @@
 
   const startImageDownloadWatch = () => {
     cleanupBadButtons();
+    ensureAudioDock();
     scanImageDownloads();
     if (imgDlObserver) imgDlObserver.disconnect();
     imgDlObserver = new MutationObserver(() => scheduleImageScan());
@@ -4667,12 +7027,694 @@
       clearInterval(startImageDownloadWatch._iv);
       startImageDownloadWatch._iv = null;
     }
-    document.querySelectorAll("button.f9-img-dl-btn, .f9-media-dl-row, .f9-media-dl-wrap").forEach((n) => {
+    document.querySelectorAll(
+      "button.f9-img-dl-btn, .f9-media-dl-row, .f9-media-dl-wrap, .f9-audio-player, .f9-audio-host, .f9-media-card"
+    ).forEach((n) => {
       if (n.classList?.contains("f9-media-dl-wrap")) {
         while (n.firstChild) n.parentNode?.insertBefore(n.firstChild, n);
       }
       n.remove();
     });
+    try {
+      closeMediaLightbox();
+      document.getElementById("f9-media-lightbox")?.remove();
+    } catch (_) {}
+    try {
+      mediaPreviewBlobCache.forEach((u) => {
+        try {
+          URL.revokeObjectURL(u);
+        } catch (_) {}
+      });
+      mediaPreviewBlobCache.clear();
+    } catch (_) {}
+    document.querySelectorAll("a.f9-media-hidden-link").forEach((a) => {
+      a.classList.remove("f9-media-hidden-link");
+      delete a.dataset.f9MediaPreview;
+    });
+    try {
+      audioBlobCache.forEach((u) => {
+        try {
+          URL.revokeObjectURL(u);
+        } catch (_) {}
+      });
+      audioBlobCache.clear();
+    } catch (_) {}
+    document.querySelectorAll("a.f9-audio-hidden-link").forEach((a) => {
+      a.classList.remove("f9-audio-hidden-link");
+      delete a.dataset.f9AudioDone;
+    });
+    try {
+      stopAudioDock(true);
+      document.getElementById("f9-audio-dock")?.remove();
+      audioDock = null;
+      audioEngine = null;
+    } catch (_) {}
+  };
+
+  /* ── Gravação de áudio na caixa da Interação ─────────────── */
+  // Desligado por enquanto (reative com true quando voltar).
+  const VOICE_RECORDING_ENABLED = false;
+  const VOICE_MIC_ICON = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v4a3 3 0 0 0 3 3z" stroke="currentColor" stroke-width="2"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+  const VOICE_STOP_ICON = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>`;
+  const VOICE_PLAY_ICON = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.14v13.72L19 12 8 5.14z"/></svg>`;
+  const VOICE_PAUSE_ICON = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>`;
+
+  let voiceWrap = null;
+  let voicePanel = null;
+  let voiceMicBtn = null;
+  let voiceWatchTimer = 0;
+  let voiceMountEl = null;
+  let voiceRecorder = null;
+  let voiceStream = null;
+  let voiceChunks = [];
+  let voiceBlob = null;
+  let voiceBlobUrl = "";
+  let voiceMime = "";
+  let voiceStartedAt = 0;
+  let voiceTickTimer = 0;
+  let voicePreviewAudio = null;
+  let voiceMode = "idle"; // idle | recording | preview | sending
+
+  const formatVoiceClock = (ms) => {
+    const sec = Math.max(0, Math.floor(Number(ms || 0) / 1000));
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return m + ":" + String(s).padStart(2, "0");
+  };
+
+  const pickVoiceMime = () => {
+    if (typeof MediaRecorder === "undefined") return "";
+    const candidates = [
+      "audio/ogg;codecs=opus",
+      "audio/ogg",
+      "audio/webm;codecs=opus",
+      "audio/webm",
+      "audio/mp4",
+    ];
+    for (const t of candidates) {
+      try {
+        if (MediaRecorder.isTypeSupported(t)) return t;
+      } catch (_) {}
+    }
+    return "";
+  };
+
+  const voiceExtForMime = (mime) => {
+    const m = String(mime || "").toLowerCase();
+    if (m.includes("ogg")) return "oga";
+    if (m.includes("mp4") || m.includes("m4a") || m.includes("aac")) return "m4a";
+    if (m.includes("mpeg") || m.includes("mp3")) return "mp3";
+    return "webm";
+  };
+
+  const revokeVoiceBlobUrl = () => {
+    if (voiceBlobUrl) {
+      try {
+        URL.revokeObjectURL(voiceBlobUrl);
+      } catch (_) {}
+      voiceBlobUrl = "";
+    }
+  };
+
+  const stopVoiceTracks = () => {
+    try {
+      voiceStream?.getTracks?.().forEach((t) => t.stop());
+    } catch (_) {}
+    voiceStream = null;
+  };
+
+  const clearVoiceTick = () => {
+    if (voiceTickTimer) {
+      clearInterval(voiceTickTimer);
+      voiceTickTimer = 0;
+    }
+  };
+
+  const resetVoicePreviewAudio = () => {
+    try {
+      if (voicePreviewAudio) {
+        voicePreviewAudio.pause();
+        voicePreviewAudio.removeAttribute("src");
+        voicePreviewAudio.load?.();
+      }
+    } catch (_) {}
+    voicePreviewAudio = null;
+  };
+
+  const ensureVoicePanel = () => {
+    let el = document.getElementById("f9-voice-panel");
+    if (el) {
+      voicePanel = el;
+      return el;
+    }
+    el = document.createElement("div");
+    el.id = "f9-voice-panel";
+    el.setAttribute("data-mode", "recording");
+    el.innerHTML = `
+      <div class="f9-voice-row f9-voice-rec-only">
+        <span class="f9-voice-dot" aria-hidden="true"></span>
+        <span class="f9-voice-title">Gravando áudio…</span>
+        <span class="f9-voice-time" data-el="rec-time">0:00</span>
+        <button type="button" class="f9-voice-stop" data-act="stop">Parar</button>
+      </div>
+      <div class="f9-voice-row f9-voice-preview-only">
+        <button type="button" class="f9-voice-play" data-act="toggle-play" aria-label="Ouvir">${VOICE_PLAY_ICON}</button>
+        <input class="f9-voice-seek" data-el="seek" type="range" min="0" max="1000" value="0" step="1" aria-label="Progresso" />
+        <span class="f9-voice-time" data-el="preview-time">0:00</span>
+      </div>
+      <div class="f9-voice-row f9-voice-preview-only">
+        <button type="button" class="f9-voice-discard" data-act="discard">Descartar</button>
+        <button type="button" class="f9-voice-send" data-act="send">Enviar áudio</button>
+      </div>
+      <div class="f9-voice-hint f9-voice-preview-only">Ouça e toque em Enviar áudio — vai direto ao motorista, sem confirmar no Five9.</div>
+    `;
+    document.body.appendChild(el);
+    el.addEventListener("click", (e) => {
+      const act = e.target?.closest?.("[data-act]")?.getAttribute("data-act");
+      if (!act) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (act === "stop") stopVoiceRecording();
+      if (act === "discard") discardVoiceRecording();
+      if (act === "send") sendVoiceRecording();
+      if (act === "toggle-play") toggleVoicePreviewPlay();
+    });
+    el.querySelector('[data-el="seek"]')?.addEventListener("input", (e) => {
+      const a = voicePreviewAudio;
+      if (!a || !Number.isFinite(a.duration) || a.duration <= 0) return;
+      a.currentTime = (Number(e.target.value) / 1000) * a.duration;
+    });
+    voicePanel = el;
+    return el;
+  };
+
+  const setVoicePanelMode = (mode) => {
+    voiceMode = mode;
+    const panel = ensureVoicePanel();
+    panel.setAttribute("data-mode", mode === "sending" ? "preview" : mode);
+    panel.classList.toggle("is-open", mode === "recording" || mode === "preview" || mode === "sending");
+    if (voiceMicBtn) {
+      voiceMicBtn.dataset.state = mode === "recording" ? "recording" : "idle";
+      voiceMicBtn.disabled = mode === "sending";
+      voiceMicBtn.title =
+        mode === "recording"
+          ? "Gravando… clique para parar"
+          : mode === "preview"
+            ? "Áudio pronto para enviar"
+            : "Gravar áudio para o motorista";
+      voiceMicBtn.innerHTML = mode === "recording" ? VOICE_STOP_ICON : VOICE_MIC_ICON;
+    }
+    const sendBtn = panel.querySelector(".f9-voice-send");
+    if (sendBtn) {
+      sendBtn.disabled = mode === "sending";
+      sendBtn.textContent = mode === "sending" ? "Enviando…" : "Enviar áudio";
+    }
+  };
+
+  const syncVoicePreviewUi = () => {
+    const panel = voicePanel || document.getElementById("f9-voice-panel");
+    if (!panel) return;
+    const a = voicePreviewAudio;
+    const playBtn = panel.querySelector('[data-act="toggle-play"]');
+    const seek = panel.querySelector('[data-el="seek"]');
+    const timeEl = panel.querySelector('[data-el="preview-time"]');
+    if (!a) return;
+    const playing = !a.paused && !a.ended;
+    if (playBtn) playBtn.innerHTML = playing ? VOICE_PAUSE_ICON : VOICE_PLAY_ICON;
+    const dur = Number.isFinite(a.duration) ? a.duration : 0;
+    const cur = a.currentTime || 0;
+    if (timeEl) {
+      timeEl.textContent = dur
+        ? formatVoiceClock(cur * 1000) + " / " + formatVoiceClock(dur * 1000)
+        : formatVoiceClock(cur * 1000);
+    }
+    if (seek && dur > 0) seek.value = String(Math.round((cur / dur) * 1000));
+  };
+
+  const toggleVoicePreviewPlay = async () => {
+    if (!voicePreviewAudio) return;
+    try {
+      if (voicePreviewAudio.paused) await voicePreviewAudio.play();
+      else voicePreviewAudio.pause();
+    } catch (e) {
+      console.warn("[Five9 Modelos] preview áudio:", e);
+      setStatus("Não foi possível reproduzir a gravação.", "warn");
+    }
+    syncVoicePreviewUi();
+  };
+
+  const enterVoicePreview = (blob) => {
+    voiceBlob = blob;
+    revokeVoiceBlobUrl();
+    voiceBlobUrl = URL.createObjectURL(blob);
+    resetVoicePreviewAudio();
+    const a = new Audio(voiceBlobUrl);
+    a.preload = "metadata";
+    voicePreviewAudio = a;
+    a.addEventListener("timeupdate", syncVoicePreviewUi);
+    a.addEventListener("play", syncVoicePreviewUi);
+    a.addEventListener("pause", syncVoicePreviewUi);
+    a.addEventListener("ended", syncVoicePreviewUi);
+    a.addEventListener("loadedmetadata", syncVoicePreviewUi);
+    setVoicePanelMode("preview");
+    syncVoicePreviewUi();
+  };
+
+  const discardVoiceRecording = () => {
+    try {
+      if (voiceRecorder && voiceRecorder.state !== "inactive") voiceRecorder.stop();
+    } catch (_) {}
+    voiceRecorder = null;
+    voiceChunks = [];
+    voiceBlob = null;
+    clearVoiceTick();
+    stopVoiceTracks();
+    resetVoicePreviewAudio();
+    revokeVoiceBlobUrl();
+    setVoicePanelMode("idle");
+    ensureVoicePanel().classList.remove("is-open");
+  };
+
+  const stopVoiceRecording = () => {
+    clearVoiceTick();
+    try {
+      if (voiceRecorder && voiceRecorder.state !== "inactive") {
+        voiceRecorder.stop();
+        return;
+      }
+    } catch (e) {
+      console.warn("[Five9 Modelos] stop recorder:", e);
+    }
+    stopVoiceTracks();
+    if (voiceChunks.length) {
+      const blob = new Blob(voiceChunks, { type: voiceMime || "audio/webm" });
+      enterVoicePreview(blob);
+    } else {
+      discardVoiceRecording();
+      setStatus("Nada foi gravado.", "warn");
+    }
+  };
+
+  const findComposerFileInputs = (inputEl) => {
+    const roots = [];
+    const mount = findComposerMount(inputEl);
+    if (mount) {
+      roots.push(mount);
+      if (mount.parentElement) roots.push(mount.parentElement);
+    }
+    if (inputEl) {
+      let p = inputEl;
+      for (let i = 0; i < 8 && p; i++) {
+        roots.push(p);
+        p = p.parentElement;
+      }
+    }
+    const panel =
+      document.querySelector("#panel-context") ||
+      document.querySelector('[id="panel-context"]') ||
+      document.querySelector('[aria-labelledby*="context" i]');
+    if (panel) roots.push(panel);
+    roots.push(document.body);
+
+    const out = [];
+    const seen = new Set();
+    for (const root of roots) {
+      if (!root?.querySelectorAll) continue;
+      root.querySelectorAll('input[type="file"]').forEach((fi) => {
+        if (seen.has(fi)) return;
+        seen.add(fi);
+        out.push(fi);
+      });
+    }
+    return out;
+  };
+
+  const clickNearbyAttachControl = (inputEl) => {
+    const root =
+      findComposerMount(inputEl)?.parentElement ||
+      inputEl?.closest?.("#panel-context, [class*='composer' i], [class*='message' i]") ||
+      document;
+    const sels = [
+      'button[aria-label*="anex" i]',
+      'button[aria-label*="attach" i]',
+      'button[aria-label*="arquivo" i]',
+      'button[aria-label*="file" i]',
+      'button[aria-label*="clip" i]',
+      'button[title*="anex" i]',
+      'button[title*="attach" i]',
+      '[data-testid*="attach" i]',
+      '[class*="attach" i] button',
+      'label[for*="file" i]',
+    ];
+    for (const sel of sels) {
+      try {
+        const btn = root.querySelector?.(sel);
+        if (btn && isVisible(btn)) {
+          btn.click();
+          return true;
+        }
+      } catch (_) {}
+    }
+    return false;
+  };
+
+  const dispatchFileOnInput = (fileInput, file) => {
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    try {
+      fileInput.files = dt.files;
+    } catch (_) {
+      try {
+        Object.defineProperty(fileInput, "files", {
+          configurable: true,
+          get: () => dt.files,
+        });
+      } catch (e2) {
+        throw e2;
+      }
+    }
+    fileInput.dispatchEvent(new Event("input", { bubbles: true }));
+    fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+
+  const dropFileOnTarget = (target, file) => {
+    if (!target) return false;
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    const opts = { bubbles: true, cancelable: true, dataTransfer: dt };
+    try {
+      target.dispatchEvent(new DragEvent("dragenter", opts));
+      target.dispatchEvent(new DragEvent("dragover", opts));
+      const dropped = target.dispatchEvent(new DragEvent("drop", opts));
+      return dropped !== false;
+    } catch (_) {
+      return false;
+    }
+  };
+
+  const attachVoiceFileToComposer = async (file) => {
+    const input = ensureTarget();
+    if (!input) throw new Error("Caixa de mensagem não encontrada na Interação.");
+
+    // 1) inputs file já presentes
+    let files = findComposerFileInputs(input);
+    const preferAudio = (fi) => {
+      const acc = String(fi.accept || "").toLowerCase();
+      if (!acc) return 1;
+      if (/audio|\.oga|\.ogg|\.webm|\.mp3|\.m4a|\.opus|\*/.test(acc)) return 3;
+      if (/image|video/.test(acc) && !/audio/.test(acc)) return 0;
+      return 2;
+    };
+    files = files.sort((a, b) => preferAudio(b) - preferAudio(a));
+    for (const fi of files) {
+      if (preferAudio(fi) === 0) continue;
+      try {
+        dispatchFileOnInput(fi, file);
+        return "file-input";
+      } catch (e) {
+        console.warn("[Five9 Modelos] file input:", e);
+      }
+    }
+
+    // 2) tenta abrir anexo nativo e achar input novo
+    clickNearbyAttachControl(input);
+    await new Promise((r) => setTimeout(r, 280));
+    files = findComposerFileInputs(input).sort((a, b) => preferAudio(b) - preferAudio(a));
+    for (const fi of files) {
+      if (preferAudio(fi) === 0) continue;
+      try {
+        dispatchFileOnInput(fi, file);
+        return "file-input-after-attach";
+      } catch (_) {}
+    }
+
+    // 3) drop no composer
+    const dropTargets = [
+      input,
+      findComposerMount(input),
+      findComposerMount(input)?.parentElement,
+      document.querySelector("#panel-context"),
+    ].filter(Boolean);
+    for (const t of dropTargets) {
+      if (dropFileOnTarget(t, file)) return "drop";
+    }
+
+    // 4) cola via clipboardData em paste (alguns composers aceitam)
+    try {
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      const paste = new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: dt });
+      input.focus();
+      input.dispatchEvent(paste);
+      return "paste";
+    } catch (_) {}
+
+    throw new Error("Não achei campo de anexo na Interação para enviar o áudio.");
+  };
+
+  const sendVoiceRecording = async () => {
+    if (!voiceBlob) {
+      setStatus("Grave um áudio antes de enviar.", "warn");
+      return;
+    }
+    setVoicePanelMode("sending");
+    const mime = voiceBlob.type || voiceMime || "audio/webm";
+    const ext = voiceExtForMime(mime);
+    const file = new File([voiceBlob], `audio-interacao-${Date.now()}.${ext}`, {
+      type: mime,
+      lastModified: Date.now(),
+    });
+    try {
+      const how = await attachVoiceFileToComposer(file);
+      console.log("[Five9 Modelos] áudio anexado via", how);
+      // espera o Five9 montar o preview/habilitar Enviar e confirma sozinho
+      await new Promise((r) => setTimeout(r, 350));
+      const input = ensureTarget();
+      const confirm = await confirmNativeMediaSend(input, { timeoutMs: 7000 });
+      console.log("[Five9 Modelos] confirmação nativa:", confirm);
+      if (confirm?.how) {
+        setStatus("Áudio enviado ao motorista.", "ok");
+      } else {
+        setStatus(
+          "Áudio anexado, mas o Enviar nativo não respondeu. Se não saiu, toque em Enviar no Five9.",
+          "warn"
+        );
+      }
+      discardVoiceRecording();
+    } catch (e) {
+      console.warn("[Five9 Modelos] enviar áudio:", e);
+      setVoicePanelMode("preview");
+      setStatus(
+        "Não consegui anexar o áudio automaticamente. Tente pelo clipe/anexo da Interação ou use o Conector.",
+        "warn"
+      );
+    }
+  };
+
+  const startVoiceRecording = async () => {
+    if (voiceMode === "recording") {
+      stopVoiceRecording();
+      return;
+    }
+    if (voiceMode === "preview" || voiceMode === "sending") {
+      // mic durante preview = descartar e gravar de novo
+      discardVoiceRecording();
+    }
+    if (!window.isSecureContext) {
+      setStatus("O navegador bloqueou o microfone neste contexto.", "warn");
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setStatus("Este navegador não permite gravar áudio.", "warn");
+      return;
+    }
+    if (typeof MediaRecorder === "undefined") {
+      setStatus("MediaRecorder indisponível neste navegador.", "warn");
+      return;
+    }
+
+    try {
+      voiceStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+    } catch (e) {
+      console.warn("[Five9 Modelos] mic:", e);
+      setStatus("Permissão do microfone negada ou indisponível.", "warn");
+      return;
+    }
+
+    voiceMime = pickVoiceMime();
+    voiceChunks = [];
+    try {
+      voiceRecorder = voiceMime
+        ? new MediaRecorder(voiceStream, { mimeType: voiceMime })
+        : new MediaRecorder(voiceStream);
+      voiceMime = voiceRecorder.mimeType || voiceMime || "audio/webm";
+    } catch (e) {
+      console.warn("[Five9 Modelos] MediaRecorder:", e);
+      stopVoiceTracks();
+      setStatus("Não foi possível iniciar a gravação.", "warn");
+      return;
+    }
+
+    voiceRecorder.addEventListener("dataavailable", (ev) => {
+      if (ev.data && ev.data.size > 0) voiceChunks.push(ev.data);
+    });
+    voiceRecorder.addEventListener("stop", () => {
+      stopVoiceTracks();
+      clearVoiceTick();
+      const blob = new Blob(voiceChunks, { type: voiceMime || "audio/webm" });
+      voiceChunks = [];
+      voiceRecorder = null;
+      if (!blob.size) {
+        discardVoiceRecording();
+        setStatus("Gravação vazia.", "warn");
+        return;
+      }
+      enterVoicePreview(blob);
+    });
+
+    try {
+      voiceRecorder.start(250);
+    } catch (e) {
+      console.warn("[Five9 Modelos] recorder.start:", e);
+      stopVoiceTracks();
+      voiceRecorder = null;
+      setStatus("Falha ao iniciar gravação.", "warn");
+      return;
+    }
+
+    voiceStartedAt = Date.now();
+    setVoicePanelMode("recording");
+    const timeEl = ensureVoicePanel().querySelector('[data-el="rec-time"]');
+    clearVoiceTick();
+    voiceTickTimer = setInterval(() => {
+      if (timeEl) timeEl.textContent = formatVoiceClock(Date.now() - voiceStartedAt);
+    }, 250);
+  };
+
+  const ensureVoiceMicButton = () => {
+    let wrap = document.getElementById("f9-voice-wrap");
+    if (!wrap) {
+      wrap = document.createElement("div");
+      wrap.id = "f9-voice-wrap";
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.id = "f9-voice-mic";
+      btn.title = "Gravar áudio para o motorista";
+      btn.setAttribute("aria-label", "Gravar áudio");
+      btn.innerHTML = VOICE_MIC_ICON;
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (voiceMode === "recording") stopVoiceRecording();
+        else startVoiceRecording();
+      });
+      wrap.appendChild(btn);
+      voiceMicBtn = btn;
+    } else {
+      voiceMicBtn = wrap.querySelector("#f9-voice-mic") || voiceMicBtn;
+    }
+    voiceWrap = wrap;
+    return wrap;
+  };
+
+  const findVoiceMicHost = (inputEl) => {
+    if (!inputEl || isInOverlay(inputEl)) return null;
+    const preferred = inputEl.closest?.(
+      [
+        '.f9-textarea-container',
+        '.container-reply-message',
+        '[data-f9-template="TextArea"]',
+        ".pn-msg-input__wrapper",
+        "[class*='composer' i]",
+        "[class*='message-input' i]",
+        "[class*='MessageInput' i]",
+        "[class*='chat-input' i]",
+        "[class*='msg-input' i]",
+      ].join(", ")
+    );
+    if (preferred && !isInOverlay(preferred)) return preferred;
+    const parent = inputEl.parentElement;
+    if (parent && !isInOverlay(parent)) return parent;
+    return null;
+  };
+
+  const unmountVoiceMic = () => {
+    try {
+      document.querySelectorAll(".f9-voice-host").forEach((el) => {
+        el.classList.remove("f9-voice-host");
+      });
+    } catch (_) {}
+    try {
+      voiceWrap?.remove?.();
+    } catch (_) {}
+    voiceMountEl = null;
+  };
+
+  const mountVoiceMicNearComposer = () => {
+    if (!VOICE_RECORDING_ENABLED) {
+      unmountVoiceMic();
+      return false;
+    }
+    if (!isChatRoute()) {
+      unmountVoiceMic();
+      return false;
+    }
+    const input = ensureTarget();
+    if (!input || !isVisible(input) || isInOverlay(input)) {
+      if (voiceMode === "idle") unmountVoiceMic();
+      return false;
+    }
+    const host = findVoiceMicHost(input);
+    if (!host) return false;
+
+    const wrap = ensureVoiceMicButton();
+    // limpa host anterior se mudou
+    if (voiceMountEl && voiceMountEl !== host) {
+      try {
+        voiceMountEl.classList.remove("f9-voice-host");
+      } catch (_) {}
+    }
+    host.classList.add("f9-voice-host");
+    if (wrap.parentElement !== host) {
+      host.appendChild(wrap);
+    }
+    voiceMountEl = host;
+    return true;
+  };
+
+  const startVoiceComposeWatch = () => {
+    if (!VOICE_RECORDING_ENABLED) {
+      stopVoiceComposeWatch();
+      try {
+        document.getElementById("f9-voice-wrap")?.remove();
+        document.getElementById("f9-voice-panel")?.remove();
+        document.querySelectorAll(".f9-voice-host").forEach((el) => el.classList.remove("f9-voice-host"));
+      } catch (_) {}
+      return;
+    }
+    ensureVoicePanel();
+    mountVoiceMicNearComposer();
+    if (voiceWatchTimer) clearInterval(voiceWatchTimer);
+    voiceWatchTimer = setInterval(mountVoiceMicNearComposer, 1200);
+  };
+
+  const stopVoiceComposeWatch = () => {
+    if (voiceWatchTimer) {
+      clearInterval(voiceWatchTimer);
+      voiceWatchTimer = 0;
+    }
+    discardVoiceRecording();
+    unmountVoiceMic();
+    try {
+      voicePanel?.remove?.();
+    } catch (_) {}
+    voicePanel = null;
   };
 
   /* ── Preferir aba INTERAÇÃO (em vez de CONECTOR) ─────────── */
@@ -4864,6 +7906,10 @@
 
   const tickInteracaoRaf = () => {
     interacaoRaf = 0;
+    if (interacaoUserChoseConector) {
+      setPreferInteracaoMask(false);
+      return;
+    }
     ensureInteracaoTab(true);
     if (Date.now() <= interacaoBurstUntil) {
       interacaoRaf = requestAnimationFrame(tickInteracaoRaf);
@@ -4873,8 +7919,9 @@
   };
 
   const beginInteracaoBurst = (ms = 1800) => {
+    // só em troca de chat — não sobrescreve escolha manual do Conector
+    if (interacaoUserChoseConector && Date.now() > interacaoBurstUntil) return;
     interacaoUserChoseConector = false;
-    // mascara ANTES do Five9 pintar o Conector
     setPreferInteracaoMask(true);
     interacaoBurstUntil = Math.max(interacaoBurstUntil, Date.now() + ms);
     ensureInteracaoTab(true);
@@ -4888,6 +7935,8 @@
       const key = getActiveChatKey();
       if (key && key !== interacaoLastChatKey) {
         interacaoLastChatKey = key;
+        // novo motorista/chat → volta a preferir Interação
+        interacaoUserChoseConector = false;
         if (!fromBurst) beginInteracaoBurst(2000);
         else {
           setPreferInteracaoMask(true);
@@ -4895,8 +7944,11 @@
         }
       }
 
-      if (interacaoUserChoseConector && !fromBurst) {
-        clearPreferMaskIfReady();
+      // escolha manual do Conector no chat atual: nunca forçar Interação
+      if (interacaoUserChoseConector) {
+        stopInteracaoRaf();
+        interacaoBurstUntil = 0;
+        setPreferInteracaoMask(false);
         return;
       }
 
@@ -4911,7 +7963,6 @@
       }
 
       if (connectorOn || (fromBurst && !contextOn)) {
-        if (fromBurst) interacaoUserChoseConector = false;
         setPreferInteracaoMask(true);
         clickInteracaoTab(!!fromBurst);
       }
@@ -4945,11 +7996,11 @@
       if (!t || !t.closest) return;
 
       if (t.closest('#connector, li[data-id="connector"], a[aria-controls="panel-connector"]')) {
-        if (Date.now() > interacaoBurstUntil) {
-          interacaoUserChoseConector = true;
-          interacaoBurstUntil = 0;
-          setPreferInteracaoMask(false);
-        }
+        // clique manual no Conector: respeita sempre (mesmo durante burst)
+        interacaoUserChoseConector = true;
+        interacaoBurstUntil = 0;
+        stopInteracaoRaf();
+        setPreferInteracaoMask(false);
         return;
       }
       if (t.closest('#context, li[data-id="context"], a[aria-controls="panel-context"]')) {
@@ -4957,9 +8008,22 @@
         setPreferInteracaoMask(false);
         return;
       }
+      // Contato / Histórico: também para o forçar Interação
+      if (
+        t.closest(
+          'li#contact, li[data-id="contact"], li#history, li[data-id="history"], ' +
+            'a[aria-controls="panel-contact"], a[aria-controls="panel-history"]'
+        )
+      ) {
+        interacaoUserChoseConector = true; // “não force Interação”
+        interacaoBurstUntil = 0;
+        stopInteracaoRaf();
+        setPreferInteracaoMask(false);
+        return;
+      }
 
       if (looksLikeChatListTarget(t)) {
-        // no pointerdown/mousedown: mascara + clique antecipado (antes do paint do Conector)
+        interacaoUserChoseConector = false;
         setPreferInteracaoMask(true);
         beginInteracaoBurst(2200);
       }
@@ -4968,6 +8032,12 @@
 
   const onInteracaoMutations = (mutations) => {
     try {
+      // se o usuário pediu Conector (ou outra aba), não interferir
+      if (interacaoUserChoseConector) {
+        setPreferInteracaoMask(false);
+        return;
+      }
+
       let connectorActivated = false;
       let contextChanged = false;
       for (const m of mutations) {
@@ -4998,7 +8068,6 @@
       }
 
       if (connectorActivated && !interacaoUserChoseConector) {
-        // síncrono: tenta trocar ainda neste frame, antes do paint
         setPreferInteracaoMask(true);
         clickInteracaoTab(true);
         beginInteracaoBurst(1600);
@@ -5060,6 +8129,7 @@
       window.removeEventListener("keydown", onHotkey, true);
       stopAiWatch();
       stopImageDownloadWatch();
+      stopVoiceComposeWatch();
       stopInteracaoPrefer();
       stopUpdateWatch();
       if (mountTimer) clearInterval(mountTimer);
@@ -5106,6 +8176,7 @@
     syncRouteVisibility();
     startAiWatch();
     startImageDownloadWatch();
+    startVoiceComposeWatch();
     startInteracaoPrefer();
     startUpdateWatch();
     if (!isChatRoute()) {
