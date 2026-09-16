@@ -1,12 +1,12 @@
 {
- "version": "1.5.4",
+ "version": "26.9.3",
  "changelog": "Correção no sistema de download de imagens/vídeos!",
  "downloadUrl": "https://raw.githubusercontent.com/arthurvihoficial/five9-modelos-mensagem/refs/heads/main/src/five9-modelos.user.js",
  "publishedAt": "2026-09-15",
  "scripts": [
    {
      "id": "modelos",
-     "version": "1.5.4",
+     "version": "26.9.3",
      "downloadUrl": "https://raw.githubusercontent.com/arthurvihoficial/five9-modelos-mensagem/refs/heads/main/src/five9-modelos.user.js"
    },
    {
