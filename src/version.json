@@ -1,12 +1,12 @@
 {
- "version": "26.9.3",
+ "version": "26.9.4",
  "changelog": "Adicionado reprodutor de áudio, preview de imagem/vídeo direto no chat",
  "downloadUrl": "https://raw.githubusercontent.com/arthurvihoficial/five9-modelos-mensagem/refs/heads/main/src/five9-modelos.user.js",
  "publishedAt": "2026-09-15",
  "scripts": [
    {
      "id": "modelos",
-     "version": "26.9.3",
+     "version": "26.9.4",
      "downloadUrl": "https://raw.githubusercontent.com/arthurvihoficial/five9-modelos-mensagem/refs/heads/main/src/five9-modelos.user.js"
    },
    {
