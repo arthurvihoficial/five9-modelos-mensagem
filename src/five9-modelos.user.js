@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Five9 – Modelos de Mensagem
 // @namespace    https://github.com/local/five9-templates
-// @version      26.9.4
+// @version      26.9.5
 // @description  Painel de modelos Five9: pastas, sugestão, download, player, preview e gravação de áudio na Interação.
 // @author       Arthur Vinícius
 // @match        https://app-atl.five9.com/clients/agent/*
@@ -41,7 +41,7 @@
   const FORM_MODAL_ID = "five9-model-form-modal";
   const TARGET_KEY = "five9_msg_target_hint_v1";
   const DEFAULT_TAG = "Geral";
-  const APP_VERSION = "26.9.4";
+  const APP_VERSION = "26.9.5";
   const AI_MIN_SCORE = 2.2;
   const AI_DRAFT_MIN_SCORE = 1.6;
   const AI_DRAFT_MIN_CHARS = 2;
@@ -1970,10 +1970,18 @@
    }
    #f9-media-lightbox .f9-lb-zin,
    #f9-media-lightbox .f9-lb-zout,
-   #f9-media-lightbox .f9-lb-zreset {
+   #f9-media-lightbox .f9-lb-zreset,
+   #f9-media-lightbox .f9-lb-rotccw,
+   #f9-media-lightbox .f9-lb-rotcw {
      background: #334155;
      color: #f8fafc;
      min-width: 40px;
+   }
+   #f9-media-lightbox .f9-lb-rotccw,
+   #f9-media-lightbox .f9-lb-rotcw {
+     font-size: 16px;
+     line-height: 1;
+     padding: 9px 12px;
    }
    #f9-media-lightbox .f9-lb-dl {
      background: #0f766e;
@@ -1993,9 +2001,9 @@
      display: flex !important;
      align-items: center;
      gap: 10px;
-     margin: 4px 0 2px;
+     margin: 2px 0;
      padding: 8px 10px;
-     width: min(360px, 100%) !important;
+     width: 100% !important;
      max-width: 100% !important;
      min-width: 0;
      box-sizing: border-box;
@@ -2009,13 +2017,32 @@
    }
    .f9-audio-host {
      display: block !important;
-     width: min(360px, 100%) !important;
+     width: 100% !important;
      max-width: 100% !important;
-     min-width: 0;
+     min-width: 100% !important;
      box-sizing: border-box;
-     margin: 4px 0 2px;
+     margin: 2px 0;
+     flex: 1 1 auto !important;
+     align-self: stretch !important;
    }
-   /* Áudio do usuário/agente: mesmo card/posição; só os botões ficam amarelos */
+   /* Five9 .content é flex — estica o player na largura do card */
+   .message-container .content:has(.f9-audio-host),
+   [id^="agent."] > .content:has(.f9-audio-host),
+   [id^="customer."] > .content:has(.f9-audio-host) {
+     display: flex !important;
+     flex-direction: column !important;
+     align-items: stretch !important;
+     width: 100% !important;
+     max-width: 100% !important;
+     box-sizing: border-box;
+   }
+   .message-container .content .f9-audio-host,
+   [id^="agent."] .content .f9-audio-host {
+     width: 100% !important;
+     max-width: 100% !important;
+     min-width: 0 !important;
+   }
+   /* Áudio enviado (nosso): botões amarelos. Motorista = verde padrão. */
    .f9-audio-host[data-dir="out"] .f9-audio-play {
      background: #eab308;
      color: #1c1917;
@@ -5373,14 +5400,18 @@
     }
   };
 
-  let lbZoom = { scale: 1, x: 0, y: 0, img: null, stage: null, label: null, hint: null };
+  let lbZoom = { scale: 1, x: 0, y: 0, rotation: 0, img: null, stage: null, label: null, hint: null };
 
   const clampLbZoom = (n, min, max) => Math.min(max, Math.max(min, n));
 
   const syncLbZoomUi = () => {
     const pct = Math.round((lbZoom.scale || 1) * 100) + "%";
-    if (lbZoom.label) lbZoom.label.textContent = "Zoom " + pct + " · scroll para ampliar";
-    if (lbZoom.hint) lbZoom.hint.textContent = pct;
+    const rot = ((lbZoom.rotation || 0) % 360 + 360) % 360;
+    const rotTxt = rot ? ` · ${rot}°` : "";
+    if (lbZoom.label) {
+      lbZoom.label.textContent = "Zoom " + pct + rotTxt + " · scroll para ampliar";
+    }
+    if (lbZoom.hint) lbZoom.hint.textContent = pct + (rot ? " " + rot + "°" : "");
     if (lbZoom.stage) {
       lbZoom.stage.classList.toggle("is-zoomed", (lbZoom.scale || 1) > 1.02);
     }
@@ -5389,7 +5420,8 @@
   const applyLbZoomTransform = () => {
     const img = lbZoom.img;
     if (!img) return;
-    img.style.transform = `translate(${lbZoom.x}px, ${lbZoom.y}px) scale(${lbZoom.scale})`;
+    const rot = lbZoom.rotation || 0;
+    img.style.transform = `translate(${lbZoom.x}px, ${lbZoom.y}px) rotate(${rot}deg) scale(${lbZoom.scale})`;
     syncLbZoomUi();
   };
 
@@ -5397,7 +5429,105 @@
     lbZoom.scale = 1;
     lbZoom.x = 0;
     lbZoom.y = 0;
+    // mantém a rotação ao resetar zoom 1:1
     applyLbZoomTransform();
+  };
+
+  const rotateLbImage = (deltaDeg) => {
+    if (!lbZoom.img) return;
+    lbZoom.rotation = (((lbZoom.rotation || 0) + deltaDeg) % 360 + 360) % 360;
+    lbZoom.x = 0;
+    lbZoom.y = 0;
+    applyLbZoomTransform();
+  };
+
+  const exportRotatedImageBlob = (imgEl, degrees) =>
+    new Promise((resolve, reject) => {
+      try {
+        const deg = ((Number(degrees) || 0) % 360 + 360) % 360;
+        const w = imgEl.naturalWidth || imgEl.width;
+        const h = imgEl.naturalHeight || imgEl.height;
+        if (!w || !h) {
+          reject(new Error("imagem sem dimensões"));
+          return;
+        }
+        if (deg === 0) {
+          reject(new Error("sem rotação"));
+          return;
+        }
+        const swap = deg === 90 || deg === 270;
+        const canvas = document.createElement("canvas");
+        canvas.width = swap ? h : w;
+        canvas.height = swap ? w : h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("canvas"));
+          return;
+        }
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.rotate((deg * Math.PI) / 180);
+        ctx.drawImage(imgEl, -w / 2, -h / 2);
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) reject(new Error("toBlob"));
+            else resolve(blob);
+          },
+          "image/jpeg",
+          0.92
+        );
+      } catch (e) {
+        reject(e);
+      }
+    });
+
+  const downloadLightboxMedia = async (box) => {
+    const url = box?.dataset?.f9Url;
+    if (!url) return;
+    const dlBtn = box.querySelector(".f9-lb-dl");
+    const rot = ((lbZoom.rotation || 0) % 360 + 360) % 360;
+    const img = lbZoom.img;
+
+    // sem rotação (ou vídeo): fluxo normal
+    if (!img || rot === 0 || box.dataset.f9Kind === "video") {
+      const fake = dlBtn || createDlButton(url);
+      requestDownloadMedia(url, fake);
+      return;
+    }
+
+    const prevText = dlBtn?.textContent;
+    try {
+      if (dlBtn) {
+        dlBtn.disabled = true;
+        dlBtn.textContent = "…";
+      }
+      if (!img.complete || !img.naturalWidth) {
+        await new Promise((resolve, reject) => {
+          const ok = () => resolve();
+          const bad = () => reject(new Error("load"));
+          img.addEventListener("load", ok, { once: true });
+          img.addEventListener("error", bad, { once: true });
+        });
+      }
+      const blob = await exportRotatedImageBlob(img, rot);
+      const base = String(filenameFromUrl(url) || "imagem").replace(/\.[^.]+$/, "") || "imagem";
+      triggerBlobDownload(blob, `${base}-rot${rot}.jpg`);
+      markMediaDownloaded(url);
+      if (dlBtn) {
+        dlBtn.textContent = "Baixado";
+        setTimeout(() => {
+          dlBtn.disabled = false;
+          dlBtn.textContent = prevText || "Baixar";
+        }, 1600);
+      }
+    } catch (e) {
+      console.warn("[Five9 Modelos] download rotacionado:", e);
+      if (dlBtn) {
+        dlBtn.disabled = false;
+        dlBtn.textContent = prevText || "Baixar";
+      }
+      // fallback: original
+      requestDownloadMedia(url, dlBtn || createDlButton(url));
+    }
   };
 
   const setLbZoomAt = (nextScale, clientX, clientY) => {
@@ -5429,6 +5559,7 @@
       scale: 1,
       x: 0,
       y: 0,
+      rotation: 0,
       img,
       stage,
       label: box.querySelector(".f9-lb-zoomlabel"),
@@ -5514,8 +5645,8 @@
 
   const ensureMediaLightbox = () => {
     let box = document.getElementById("f9-media-lightbox");
-    if (box && !box.querySelector(".f9-lb-zin")) {
-      // lightbox antigo sem zoom — recria
+    if (box && (!box.querySelector(".f9-lb-zin") || !box.querySelector(".f9-lb-rotcw"))) {
+      // lightbox antigo sem zoom/rotação — recria
       try {
         box.remove();
       } catch (_) {}
@@ -5533,6 +5664,8 @@
           <button type="button" class="f9-lb-zout" data-lb="zoomout" title="Diminuir">−</button>
           <button type="button" class="f9-lb-zin" data-lb="zoomin" title="Ampliar">+</button>
           <button type="button" class="f9-lb-zreset" data-lb="zoomreset" title="Resetar zoom">1:1</button>
+          <button type="button" class="f9-lb-rotccw" data-lb="rotccw" title="Girar para a esquerda">↺</button>
+          <button type="button" class="f9-lb-rotcw" data-lb="rotcw" title="Girar para a direita">↻</button>
           <button type="button" class="f9-lb-dl" data-lb="download">Baixar</button>
           <button type="button" class="f9-lb-open" data-lb="open">Abrir</button>
           <button type="button" class="f9-lb-close" data-lb="close">Fechar</button>
@@ -5547,15 +5680,13 @@
         if (url) openMediaUrlFallback(url);
       }
       if (act === "download") {
-        const url = box.dataset.f9Url;
-        if (url) {
-          const fake = createDlButton(url);
-          requestDownloadMedia(url, fake);
-        }
+        downloadLightboxMedia(box);
       }
       if (act === "zoomin") setLbZoomAt((lbZoom.scale || 1) * 1.25);
       if (act === "zoomout") setLbZoomAt((lbZoom.scale || 1) / 1.25);
       if (act === "zoomreset") resetLbZoom();
+      if (act === "rotcw") rotateLbImage(90);
+      if (act === "rotccw") rotateLbImage(-90);
     });
     document.addEventListener("keydown", (e) => {
       if (!box.classList.contains("is-open")) return;
@@ -5571,6 +5702,18 @@
       if (e.key === "0") {
         e.preventDefault();
         resetLbZoom();
+      }
+      if (e.key === "r" || e.key === "R") {
+        e.preventDefault();
+        rotateLbImage(e.shiftKey ? -90 : 90);
+      }
+      if (e.key === "[") {
+        e.preventDefault();
+        rotateLbImage(-90);
+      }
+      if (e.key === "]") {
+        e.preventDefault();
+        rotateLbImage(90);
       }
     });
     return box;
@@ -5588,14 +5731,16 @@
       media.classList.remove("is-zoomed", "is-panning");
       media.innerHTML = "";
     }
-    lbZoom = { scale: 1, x: 0, y: 0, img: null, stage: null, label: null, hint: null };
+    lbZoom = { scale: 1, x: 0, y: 0, rotation: 0, img: null, stage: null, label: null, hint: null };
     delete box.dataset.f9Url;
+    delete box.dataset.f9Kind;
   };
 
   const openMediaLightbox = async (url, kind) => {
     const box = ensureMediaLightbox();
     const stage = box.querySelector('[data-el="media"]');
     box.dataset.f9Url = url;
+    box.dataset.f9Kind = kind || "image";
     try {
       stage._f9ZoomCleanup?.();
     } catch (_) {}
@@ -5605,7 +5750,7 @@
       zoomLabel.style.display = kind === "video" ? "none" : "";
       zoomLabel.textContent = "Zoom 100% · scroll para ampliar";
     }
-    box.querySelectorAll(".f9-lb-zin, .f9-lb-zout, .f9-lb-zreset").forEach((b) => {
+    box.querySelectorAll(".f9-lb-zin, .f9-lb-zout, .f9-lb-zreset, .f9-lb-rotcw, .f9-lb-rotccw").forEach((b) => {
       b.style.display = kind === "video" ? "none" : "";
     });
     stage.innerHTML = `<div style="color:#94a3b8;padding:24px;font:13px Segoe UI,system-ui">Carregando…</div>`;
@@ -5911,64 +6056,121 @@
     }
   };
 
-  const detectAudioMessageDir = (anchorEl, bubble) => {
-    // Sinal mais forte do Five9: id="agent.<id>.<ts>" vs customer/contact/...
-    const actor =
-      findFive9MessageActorRoot(anchorEl) ||
-      findFive9MessageActorRoot(bubble) ||
-      findFive9MessageActorRoot(bubble?.parentElement);
-    if (actor?.id) {
-      if (/^agent\./i.test(actor.id)) return "out";
-      if (/^(customer|contact|client|visitor|enduser)\./i.test(actor.id)) return "in";
+  // No Five9, id="agent.…" aparece nos DOIS lados.
+  // data-dir lógico: out=nosso, in=motorista — mas na tela vinha invertido,
+  // então applyAudioDirFlip troca na hora de pintar (amarelo no nosso).
+  const recentSentAudioUrls = new Set();
+  const markAudioUrlAsSentByUs = (url) => {
+    if (!url) return;
+    try {
+      recentSentAudioUrls.add(String(url));
+      const base = String(url).split(/[?#]/)[0];
+      if (base) recentSentAudioUrls.add(base);
+    } catch (_) {}
+  };
+
+  const detectAudioMessageDir = (anchorEl, bubble, hostEl) => {
+    const url =
+      hostEl?.querySelector?.("[data-f9-audio-url]")?.getAttribute("data-f9-audio-url") ||
+      hostEl?.getAttribute?.("data-f9-audio-url") ||
+      anchorEl?.href ||
+      "";
+    if (url) {
+      const raw = String(url);
+      const base = raw.split(/[?#]/)[0];
+      if (recentSentAudioUrls.has(raw) || (base && recentSentAudioUrls.has(base))) return "out";
+      if (/audio-interacao-/i.test(raw)) return "out";
     }
 
-    const nodes = [anchorEl, bubble, bubble?.parentElement, anchorEl?.parentElement].filter(Boolean);
-    for (const el of nodes) {
-      if (typeof isLikelyOwnMessage === "function" && isLikelyOwnMessage(el, "")) return "out";
-    }
-    // sobe um pouco procurando outbound/inbound sem entrar na lista
-    let node = bubble || anchorEl;
-    for (let i = 0; i < 8 && node && node !== document.body; i++) {
-      if (isMessageListContainer(node) && i > 0) break;
-      if (node.id && /^agent\./i.test(node.id)) return "out";
-      if (node.id && /^(customer|contact|client|visitor|enduser)\./i.test(node.id)) return "in";
-      const meta = normalize(
-        [
-          node.className || "",
-          node.id || "",
-          node.getAttribute?.("data-testid") || "",
-          node.getAttribute?.("data-direction") || "",
-          node.getAttribute?.("aria-label") || "",
-        ].join(" ")
-      );
-      if (/(outbound|outgoing|sent|mine|self|from-agent|is-me|own-message|agent-message)/.test(meta)) {
-        return "out";
-      }
-      if (/(inbound|incoming|from-customer|from-contact|customer-message|client-message)/.test(meta)) {
-        return "in";
-      }
+    const roots = [
+      hostEl,
+      anchorEl,
+      bubble,
+      hostEl?.closest?.(".message-container"),
+      anchorEl?.closest?.(".message-container"),
+      bubble?.closest?.(".message-container"),
+      findFive9MessageActorRoot(hostEl || anchorEl || bubble),
+    ].filter(Boolean);
+
+    for (const el of roots) {
+      let t = "";
       try {
-        const rect = node.getBoundingClientRect();
-        const parent = node.parentElement?.getBoundingClientRect?.();
-        if (parent && parent.width > 120 && rect.width > 40 && rect.width < parent.width * 0.92) {
-          const mid = parent.left + parent.width / 2;
-          const center = rect.left + rect.width / 2;
-          if (center > mid + 36) return "out";
-          if (center < mid - 36) return "in";
-        }
-        const bg = getComputedStyle(node).backgroundColor || "";
-        const m = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
-        if (m) {
-          const r = +m[1];
-          const g = +m[2];
-          const b = +m[3];
-          // bolha azul típica do agente
-          if (b > 110 && b > r + 25 && b >= g && r < 140) return "out";
+        t = String(el.textContent || "")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 160);
+      } catch (_) {}
+      if (/[aá]udio\s+enviado/i.test(t) || /mens+agem\s+de\s+voz\s+enviada/i.test(t)) return "out";
+      if (/mens+agem\s+de\s+voz\s+recebida|[aá]udio\s+recebido/i.test(t)) return "in";
+    }
+
+    for (const el of roots) {
+      try {
+        if (el.closest?.("[id^='customer.'], [id^='contact.'], [id^='client.'], [id^='visitor.']")) {
+          return "in";
         }
       } catch (_) {}
-      node = node.parentElement;
     }
     return "in";
+  };
+
+  // Corrige inversão observada: motorista vinha amarelo e o nosso verde.
+  const flipAudioDir = (dir) => (dir === "out" ? "in" : "out");
+
+  const resolvePaintDir = (anchorEl, bubble, hostEl) => {
+    const raw = detectAudioMessageDir(anchorEl, bubble, hostEl);
+    const url =
+      hostEl?.querySelector?.("[data-f9-audio-url]")?.getAttribute("data-f9-audio-url") ||
+      hostEl?.getAttribute?.("data-f9-audio-url") ||
+      anchorEl?.href ||
+      "";
+    // URLs que nós mandamos: sempre amarelo (out), sem flip
+    if (url) {
+      const rawUrl = String(url);
+      const base = rawUrl.split(/[?#]/)[0];
+      if (
+        recentSentAudioUrls.has(rawUrl) ||
+        (base && recentSentAudioUrls.has(base)) ||
+        /audio-interacao-/i.test(rawUrl)
+      ) {
+        return "out";
+      }
+    }
+    return flipAudioDir(raw);
+  };
+
+  const syncAudioHostWidths = (root = document) => {
+    try {
+      root.querySelectorAll?.(".f9-audio-host").forEach((host) => {
+        const box =
+          host.closest?.(".content") ||
+          host.closest?.(".message-container") ||
+          host.parentElement;
+        if (!box) return;
+        const w = Math.floor(box.getBoundingClientRect?.().width || box.clientWidth || 0);
+        if (w > 48) {
+          host.style.width = "100%";
+          host.style.maxWidth = "100%";
+          host.style.minWidth = "0";
+          const player = host.querySelector(".f9-audio-player");
+          if (player) {
+            player.style.width = "100%";
+            player.style.maxWidth = "100%";
+          }
+        }
+      });
+    } catch (_) {}
+  };
+
+  const syncAudioHostDirections = (root = document) => {
+    try {
+      root.querySelectorAll?.(".f9-audio-host").forEach((host) => {
+        const dir = resolvePaintDir(null, host.closest?.(".content") || null, host);
+        if (host.getAttribute("data-dir") !== dir) host.setAttribute("data-dir", dir);
+        host.closest?.(".message-container")?.classList?.remove("f9-agent-audio-out");
+      });
+      syncAudioHostWidths(root);
+    } catch (_) {}
   };
 
   // Esconde legendas nativas redundantes ("Imagem enviada", "Menssagem de voz recebida!"…)
@@ -6213,6 +6415,100 @@
   let audioNowPlaying = { url: "", title: "Áudio", contact: "", chatKey: "" };
   let audioSeeking = false;
   let audioDockWatchTimer = 0;
+  let audioUiRaf = 0;
+  const audioDurationCache = new Map(); // url -> seconds
+
+  const getMediaDurationSec = (a, url) => {
+    if (!a) return 0;
+    let d = a.duration;
+    if (Number.isFinite(d) && d > 0 && d !== Infinity) return d;
+    try {
+      if (a.seekable && a.seekable.length) {
+        const end = a.seekable.end(a.seekable.length - 1);
+        if (Number.isFinite(end) && end > 0) return end;
+      }
+    } catch (_) {}
+    try {
+      if (a.buffered && a.buffered.length) {
+        const end = a.buffered.end(a.buffered.length - 1);
+        if (Number.isFinite(end) && end > 0) return end;
+      }
+    } catch (_) {}
+    if (url && audioDurationCache.has(url)) return audioDurationCache.get(url) || 0;
+    return 0;
+  };
+
+  const rememberAudioDuration = (url, a) => {
+    const d = getMediaDurationSec(a, url);
+    if (url && d > 0) audioDurationCache.set(url, d);
+    return d;
+  };
+
+  // OGG/OPUS do WhatsApp às vezes vem com duration=Infinity até forçar.
+  const resolveAudioDuration = (a) =>
+    new Promise((resolve) => {
+      if (!a) return resolve(0);
+      const known = getMediaDurationSec(a, audioNowPlaying.url);
+      if (known > 0) return resolve(known);
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        try {
+          a.removeEventListener("durationchange", onMeta);
+          a.removeEventListener("timeupdate", onMeta);
+        } catch (_) {}
+        const d = getMediaDurationSec(a, audioNowPlaying.url);
+        if (d > 0 && audioNowPlaying.url) audioDurationCache.set(audioNowPlaying.url, d);
+        resolve(d);
+      };
+      const onMeta = () => {
+        if (getMediaDurationSec(a, audioNowPlaying.url) > 0) finish();
+      };
+      a.addEventListener("durationchange", onMeta);
+      a.addEventListener("timeupdate", onMeta);
+      try {
+        const prev = a.currentTime || 0;
+        const onSeeked = () => {
+          a.removeEventListener("seeked", onSeeked);
+          try {
+            a.currentTime = Math.min(prev, getMediaDurationSec(a) || prev);
+          } catch (_) {
+            try {
+              a.currentTime = 0;
+            } catch (__) {}
+          }
+          finish();
+        };
+        a.addEventListener("seeked", onSeeked);
+        a.currentTime = 1e101;
+        setTimeout(finish, 1200);
+      } catch (_) {
+        setTimeout(finish, 400);
+      }
+    });
+
+  const startAudioUiLoop = () => {
+    if (audioUiRaf) return;
+    const tick = () => {
+      try {
+        syncAllAudioUis();
+      } catch (_) {}
+      if (audioEngine && !audioEngine.paused && !audioEngine.ended) {
+        audioUiRaf = requestAnimationFrame(tick);
+      } else {
+        audioUiRaf = 0;
+      }
+    };
+    audioUiRaf = requestAnimationFrame(tick);
+  };
+
+  const stopAudioUiLoop = () => {
+    if (audioUiRaf) {
+      cancelAnimationFrame(audioUiRaf);
+      audioUiRaf = 0;
+    }
+  };
 
   const isAudioUrl = (raw) => {
     const url = String(raw || "");
@@ -6336,13 +6632,13 @@
     const a = audioEngine;
     if (!a) return;
     const playing = !a.paused && !a.ended;
+    const url = audioNowPlaying.url;
     const cur = a.currentTime || 0;
-    const dur = Number.isFinite(a.duration) ? a.duration : 0;
+    const dur = rememberAudioDuration(url, a);
     const timeTxt = dur
       ? formatAudioTime(cur) + " / " + formatAudioTime(dur)
       : formatAudioTime(cur);
-    const seekVal = dur > 0 ? String(Math.round((cur / dur) * 1000)) : "0";
-    const url = audioNowPlaying.url;
+    const seekVal = dur > 0 ? String(Math.max(0, Math.min(1000, Math.round((cur / dur) * 1000)))) : "0";
 
     document.querySelectorAll(".f9-audio-player").forEach((root) => {
       const isCurrent = root.getAttribute("data-f9-audio-url") === url;
@@ -6354,9 +6650,12 @@
       if (isCurrent) {
         playBtn.innerHTML = playing ? AUDIO_PAUSE_ICON : AUDIO_PLAY_ICON;
         playBtn.setAttribute("aria-label", playing ? "Pausar áudio" : "Reproduzir áudio");
-        root.setAttribute("data-state", playing ? "playing" : "ready");
+        root.setAttribute("data-state", playing ? "playing" : a.ended ? "ready" : "ready");
         if (timeEl) timeEl.textContent = timeTxt;
-        if (seek && !audioSeeking) seek.value = seekVal;
+        if (seek && !audioSeeking) {
+          seek.value = seekVal;
+          seek.disabled = dur <= 0;
+        }
         if (titleEl && titleEl.textContent === "Carregando…") titleEl.textContent = "Áudio";
       } else if (root.getAttribute("data-state") === "playing") {
         playBtn.innerHTML = AUDIO_PLAY_ICON;
@@ -6378,7 +6677,10 @@
       if (dockPlay) {
         dockPlay.innerHTML = playing ? AUDIO_PAUSE_ICON : AUDIO_PLAY_ICON;
       }
-      if (dockSeek && !audioSeeking && dur > 0) dockSeek.value = seekVal;
+      if (dockSeek && !audioSeeking) {
+        if (dur > 0) dockSeek.value = seekVal;
+        dockSeek.disabled = dur <= 0;
+      }
       audioDock.setAttribute("data-state", playing ? "playing" : "paused");
       audioDock.classList.toggle("is-show", shouldShowAudioDock());
     }
@@ -6432,8 +6734,10 @@
         audioSeeking = false;
       });
       seek?.addEventListener("input", () => {
-        if (!audioEngine || !Number.isFinite(audioEngine.duration) || audioEngine.duration <= 0) return;
-        audioEngine.currentTime = (Number(seek.value) / 1000) * audioEngine.duration;
+        if (!audioEngine) return;
+        const dur = getMediaDurationSec(audioEngine, audioNowPlaying.url);
+        if (dur <= 0) return;
+        audioEngine.currentTime = (Number(seek.value) / 1000) * dur;
         syncAllAudioUis();
       });
 
@@ -6443,16 +6747,33 @@
       });
 
       audioEngine.addEventListener("timeupdate", syncAllAudioUis);
-      audioEngine.addEventListener("play", syncAllAudioUis);
-      audioEngine.addEventListener("pause", syncAllAudioUis);
-      audioEngine.addEventListener("ended", () => {
+      audioEngine.addEventListener("play", () => {
+        startAudioUiLoop();
         syncAllAudioUis();
-        // esconde o dock ao terminar
+      });
+      audioEngine.addEventListener("pause", () => {
+        stopAudioUiLoop();
+        syncAllAudioUis();
+      });
+      audioEngine.addEventListener("ended", () => {
+        stopAudioUiLoop();
+        rememberAudioDuration(audioNowPlaying.url, audioEngine);
+        syncAllAudioUis();
         setTimeout(() => {
           if (audioEngine && audioEngine.ended) stopAudioDock(false);
         }, 400);
       });
-      audioEngine.addEventListener("loadedmetadata", syncAllAudioUis);
+      audioEngine.addEventListener("loadedmetadata", () => {
+        rememberAudioDuration(audioNowPlaying.url, audioEngine);
+        syncAllAudioUis();
+      });
+      audioEngine.addEventListener("durationchange", () => {
+        rememberAudioDuration(audioNowPlaying.url, audioEngine);
+        syncAllAudioUis();
+      });
+      audioEngine.addEventListener("progress", () => {
+        rememberAudioDuration(audioNowPlaying.url, audioEngine);
+      });
     }
     return el;
   };
@@ -6479,11 +6800,17 @@
   const ensureAudioSource = async (url) => {
     ensureAudioDock();
     if (!audioEngine) throw new Error("engine missing");
-    if (audioNowPlaying.url === url && audioEngine.src) return;
+    if (audioNowPlaying.url === url && audioEngine.src && getMediaDurationSec(audioEngine, url) > 0) {
+      return;
+    }
     audioNowPlaying.url = url;
-    // tenta direto
-    try {
-      audioEngine.src = url;
+
+    const preferBlob =
+      /anexos|\.oga(?:$|[?#])|\.ogg(?:$|[?#])|\.opus(?:$|[?#])|\.weba(?:$|[?#])/i.test(String(url)) ||
+      typeof GM_xmlhttpRequest === "function";
+
+    const loadSrc = async (src) => {
+      audioEngine.src = src;
       await new Promise((resolve, reject) => {
         let settled = false;
         const ok = () => {
@@ -6496,7 +6823,7 @@
           if (settled) return;
           settled = true;
           cleanup();
-          reject(new Error("direct fail"));
+          reject(new Error("load fail"));
         };
         const cleanup = () => {
           audioEngine.removeEventListener("loadedmetadata", ok);
@@ -6507,17 +6834,36 @@
         audioEngine.addEventListener("canplay", ok);
         audioEngine.addEventListener("error", bad);
         setTimeout(() => {
-          if (!settled) bad();
-        }, 2800);
+          if (!settled) {
+            // metadata parcial ainda pode tocar
+            if (audioEngine.readyState >= 1) ok();
+            else bad();
+          }
+        }, 3500);
       });
+    };
+
+    if (preferBlob) {
+      try {
+        const blobUrl = await fetchAudioBlobUrl(url);
+        await loadSrc(blobUrl);
+        await resolveAudioDuration(audioEngine);
+        rememberAudioDuration(url, audioEngine);
+        return;
+      } catch (_) {}
+    }
+
+    try {
+      await loadSrc(url);
+      await resolveAudioDuration(audioEngine);
+      rememberAudioDuration(url, audioEngine);
       return;
     } catch (_) {}
+
     const blobUrl = await fetchAudioBlobUrl(url);
-    audioEngine.src = blobUrl;
-    await new Promise((resolve, reject) => {
-      audioEngine.addEventListener("loadedmetadata", () => resolve(), { once: true });
-      audioEngine.addEventListener("error", () => reject(new Error("blob fail")), { once: true });
-    });
+    await loadSrc(blobUrl);
+    await resolveAudioDuration(audioEngine);
+    rememberAudioDuration(url, audioEngine);
   };
 
   const playAudioUrl = async (url, opts = {}) => {
@@ -6529,8 +6875,9 @@
       opts.chatKey || normalizeAudioChatKey(contact) || getCurrentAudioChatKey();
     await ensureAudioSource(url);
     await audioEngine.play();
+    startAudioUiLoop();
     if (!audioDockWatchTimer) {
-      audioDockWatchTimer = setInterval(syncAllAudioUis, 700);
+      audioDockWatchTimer = setInterval(syncAllAudioUis, 400);
     }
     syncAllAudioUis();
   };
@@ -6539,6 +6886,7 @@
     ensureAudioDock();
     if (audioNowPlaying.url === url && audioEngine && !audioEngine.paused) {
       audioEngine.pause();
+      stopAudioUiLoop();
       syncAllAudioUis();
       return;
     }
@@ -6596,8 +6944,9 @@
     seek.addEventListener("input", () => {
       ensureAudioDock();
       if (!audioEngine || audioNowPlaying.url !== url) return;
-      if (!Number.isFinite(audioEngine.duration) || audioEngine.duration <= 0) return;
-      audioEngine.currentTime = (Number(seek.value) / 1000) * audioEngine.duration;
+      const dur = getMediaDurationSec(audioEngine, url);
+      if (dur <= 0) return;
+      audioEngine.currentTime = (Number(seek.value) / 1000) * dur;
       syncAllAudioUis();
     });
 
@@ -6619,30 +6968,38 @@
     if (!anchorEl || !url) return false;
     const applyDir = (host, bubble) => {
       if (!host) return;
-      const dir = detectAudioMessageDir(anchorEl, bubble);
+      const dir = resolvePaintDir(anchorEl, bubble, host);
       host.setAttribute("data-dir", dir);
+      if (dir === "out") {
+        const u =
+          host.querySelector?.("[data-f9-audio-url]")?.getAttribute("data-f9-audio-url") ||
+          anchorEl?.href ||
+          "";
+        markAudioUrlAsSentByUs(u);
+      }
       const titleEl = host.querySelector(".f9-audio-title");
       if (titleEl && !/carregando|falha/i.test(titleEl.textContent || "")) {
         titleEl.textContent = "Áudio";
       }
-      // limpa classe antiga do card azul (versões anteriores)
       try {
-        const container =
-          host.closest?.(".message-container") ||
-          bubble?.closest?.(".message-container") ||
-          findFive9MessageActorRoot(host)?.closest?.(".message-container");
-        container?.classList?.remove("f9-agent-audio-out");
+        host.closest?.(".message-container")?.classList?.remove("f9-agent-audio-out");
+        bubble?.closest?.(".message-container")?.classList?.remove("f9-agent-audio-out");
+      } catch (_) {}
+      try {
+        syncAudioHostWidths(host.parentElement || document);
       } catch (_) {}
     };
 
-    // já processado: ainda corrige direção (ex.: id agent.* que antes ia como "in")
+    // já processado: ainda corrige direção
     if (anchorEl.dataset.f9AudioDone === "1") {
       const bub = findSafeMessageBubble(anchorEl);
-      const host =
-        (anchorEl.nextElementSibling?.classList?.contains("f9-audio-host") &&
-          anchorEl.nextElementSibling) ||
-        bub?.querySelector?.(".f9-audio-host") ||
-        anchorEl.closest?.(".f9-audio-host");
+      let host = null;
+      if (anchorEl.nextElementSibling?.classList?.contains("f9-audio-host")) {
+        host = anchorEl.nextElementSibling;
+      } else if (anchorEl.closest?.(".f9-audio-host")) {
+        host = anchorEl.closest(".f9-audio-host");
+      }
+      // NÃO usar bub.querySelector(.f9-audio-host) — pegava o player errado na lista
       if (host) applyDir(host, bub);
       if (bub) hideRedundantMediaCaption(bub, "audio");
       return true;
@@ -6690,7 +7047,6 @@
     const host = document.createElement("div");
     host.className = "f9-audio-host";
     host.appendChild(createAudioPlayer(url));
-    applyDir(host, bubble);
     try {
       // Insere sempre perto do link, no mesmo bubble — nunca num container da lista
       if (anchorEl.parentNode && bubble.contains(anchorEl)) {
@@ -6703,9 +7059,19 @@
         bubble.appendChild(host);
       } catch (__) {}
     }
+    // depois de inserir no DOM dá para checar id=agent.* com segurança
+    applyDir(host, bubble);
     anchorEl.classList.add("f9-audio-hidden-link");
     anchorEl.dataset.f9AudioDone = "1";
+    // esconde "Áudio enviado!" etc. no bubble e no container da mensagem
     hideRedundantMediaCaption(bubble, "audio");
+    try {
+      const msgRoot =
+        findFive9MessageActorRoot(bubble) ||
+        findFive9MessageActorRoot(anchorEl) ||
+        bubble.closest?.(".message-container");
+      if (msgRoot && msgRoot !== bubble) hideRedundantMediaCaption(msgRoot, "audio");
+    } catch (_) {}
     return true;
   };
 
@@ -7007,6 +7373,7 @@
       }
       try {
         syncAllAudioUis();
+        syncAudioHostDirections(document);
       } catch (_) {}
     } catch (e) {
       console.warn("[Five9 Modelos] scan mídia:", e);
