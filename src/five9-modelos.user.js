@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Five9 – Modelos de Mensagem
 // @namespace    https://github.com/local/five9-templates
-// @version      26.9.5
+// @version      26.9.6
 // @description  Painel de modelos Five9: pastas, sugestão, download, player, preview e gravação de áudio na Interação.
 // @author       Arthur Vinícius
 // @match        https://app-atl.five9.com/clients/agent/*
@@ -41,11 +41,40 @@
   const FORM_MODAL_ID = "five9-model-form-modal";
   const TARGET_KEY = "five9_msg_target_hint_v1";
   const DEFAULT_TAG = "Geral";
-  const APP_VERSION = "26.9.5";
+  const APP_VERSION = "26.9.6";
   const AI_MIN_SCORE = 2.2;
   const AI_DRAFT_MIN_SCORE = 1.6;
   const AI_DRAFT_MIN_CHARS = 2;
   const AI_SCAN_MS = 1800;
+
+  // Anti-flash: esconde links de mídia crus até data-f9-img-dl-done (CSS barato).
+  // Injeta cedo para não aparecer URL feia ao abrir/trocar chat.
+  (() => {
+    const id = "f9-media-antiflash";
+    if (document.getElementById(id)) return;
+    const s = document.createElement("style");
+    s.id = id;
+    s.textContent = [
+      'a[href*="anexos"]:not([data-f9-img-dl-done]),',
+      'a[href*=".jpg"]:not([data-f9-img-dl-done]),',
+      'a[href*=".jpeg"]:not([data-f9-img-dl-done]),',
+      'a[href*=".png"]:not([data-f9-img-dl-done]),',
+      'a[href*=".gif"]:not([data-f9-img-dl-done]),',
+      'a[href*=".webp"]:not([data-f9-img-dl-done]),',
+      'a[href*=".mp4"]:not([data-f9-img-dl-done]),',
+      'a[href*=".mov"]:not([data-f9-img-dl-done]),',
+      'a[href*=".oga"]:not([data-f9-img-dl-done]),',
+      'a[href*=".ogg"]:not([data-f9-img-dl-done]),',
+      'a[href*=".opus"]:not([data-f9-img-dl-done]),',
+      'a[href*=".mp3"]:not([data-f9-img-dl-done]),',
+      'a[href*=".m4a"]:not([data-f9-img-dl-done]),',
+      'a[href*=".wav"]:not([data-f9-img-dl-done]),',
+      'a[href*=".aac"]:not([data-f9-img-dl-done]),',
+      'a[href*=".webm"]:not([data-f9-img-dl-done])',
+      "{ display: none !important; }",
+    ].join("");
+    (document.documentElement || document.head || document.body)?.appendChild?.(s);
+  })();
 
   const UPDATE = {
     versionUrl:
@@ -1855,6 +1884,25 @@
    }
    a.f9-media-hidden-link { display: none !important; }
    .f9-media-caption-hidden { display: none !important; }
+   /* Anti-flash (espelha o style precoce): link cru some até processar */
+   a[href*="anexos"]:not([data-f9-img-dl-done]),
+   a[href*=".jpg"]:not([data-f9-img-dl-done]),
+   a[href*=".jpeg"]:not([data-f9-img-dl-done]),
+   a[href*=".png"]:not([data-f9-img-dl-done]),
+   a[href*=".gif"]:not([data-f9-img-dl-done]),
+   a[href*=".webp"]:not([data-f9-img-dl-done]),
+   a[href*=".mp4"]:not([data-f9-img-dl-done]),
+   a[href*=".mov"]:not([data-f9-img-dl-done]),
+   a[href*=".oga"]:not([data-f9-img-dl-done]),
+   a[href*=".ogg"]:not([data-f9-img-dl-done]),
+   a[href*=".opus"]:not([data-f9-img-dl-done]),
+   a[href*=".mp3"]:not([data-f9-img-dl-done]),
+   a[href*=".m4a"]:not([data-f9-img-dl-done]),
+   a[href*=".wav"]:not([data-f9-img-dl-done]),
+   a[href*=".aac"]:not([data-f9-img-dl-done]),
+   a[href*=".webm"]:not([data-f9-img-dl-done]) {
+     display: none !important;
+   }
    /* NÃO usar div:has(> .f9-media-card) — quebrava o layout da Interação */
 
    /* Caixa de mensagem sempre acessível (não some sob o footer) */
@@ -1895,6 +1943,7 @@
      display: flex;
      flex-direction: column;
      gap: 10px;
+     padding: 0 4px;
    }
    #f9-media-lightbox .f9-lb-media {
      flex: 1 1 auto;
@@ -1995,6 +2044,61 @@
      background: #fff;
      color: #0f172a;
    }
+   #f9-media-lightbox .f9-lb-nav {
+     position: absolute;
+     top: 50%;
+     transform: translateY(-50%);
+     z-index: 3;
+     width: 44px;
+     height: 44px;
+     padding: 0;
+     margin: 0;
+     border: 0;
+     border-radius: 50%;
+     cursor: pointer;
+     background: rgba(15, 23, 42, 0.72);
+     color: #f8fafc;
+     display: inline-flex;
+     align-items: center;
+     justify-content: center;
+     line-height: 0;
+     box-shadow: 0 4px 14px rgba(0,0,0,.35);
+     transition: background .12s ease, transform .12s ease, opacity .12s ease;
+   }
+   #f9-media-lightbox .f9-lb-nav svg {
+     width: 18px;
+     height: 18px;
+     display: block;
+     flex: 0 0 auto;
+     pointer-events: none;
+   }
+   #f9-media-lightbox .f9-lb-nav:hover {
+     background: rgba(30, 41, 59, 0.92);
+     transform: translateY(-50%) scale(1.05);
+   }
+   #f9-media-lightbox .f9-lb-nav:disabled,
+   #f9-media-lightbox .f9-lb-nav.is-hidden {
+     opacity: 0.28;
+     cursor: default;
+     pointer-events: none;
+   }
+   #f9-media-lightbox .f9-lb-prev { left: 10px; }
+   #f9-media-lightbox .f9-lb-next { right: 10px; }
+   #f9-media-lightbox .f9-lb-counter {
+     position: absolute;
+     top: 14px;
+     left: 50%;
+     transform: translateX(-50%);
+     z-index: 3;
+     padding: 4px 10px;
+     border-radius: 999px;
+     background: rgba(15, 23, 42, 0.7);
+     color: #e2e8f0;
+     font: 600 12px/1.2 "Segoe UI", system-ui, sans-serif;
+     letter-spacing: 0.02em;
+     pointer-events: none;
+   }
+   #f9-media-lightbox .f9-lb-counter:empty { display: none; }
 
    /* ── Player de áudio no chat ───────────────────────────── */
    .f9-audio-player {
@@ -2042,32 +2146,32 @@
      max-width: 100% !important;
      min-width: 0 !important;
    }
-   /* Áudio enviado (nosso): botões amarelos. Motorista = verde padrão. */
+   /* Áudio enviado (nosso): verde. Motorista = cinza claro. */
    .f9-audio-host[data-dir="out"] .f9-audio-play {
-     background: #eab308;
-     color: #1c1917;
-     box-shadow: 0 2px 6px rgba(202, 138, 4, 0.35);
+     background: #0f766e;
+     color: #fff;
+     box-shadow: 0 2px 6px rgba(15, 118, 110, 0.28);
    }
    .f9-audio-host[data-dir="out"] .f9-audio-seek::-webkit-slider-thumb {
-     background: #eab308;
-     border-color: #fffbeb;
+     background: #0f766e;
+     border-color: #ecfdf5;
    }
    .f9-audio-host[data-dir="out"] .f9-audio-seek::-moz-range-thumb {
-     background: #eab308;
-     border-color: #fffbeb;
+     background: #0f766e;
+     border-color: #ecfdf5;
    }
    .f9-audio-host[data-dir="out"] .f9-audio-open {
-     border-color: #f6e05e;
-     color: #a16207;
+     border-color: #99d5cf;
+     color: #0f766e;
    }
    .f9-audio-host[data-dir="out"] .f9-audio-open:hover {
-     background: #fef9c3;
-     border-color: #eab308;
-     color: #854d0e;
+     background: #ecfdf5;
+     border-color: #0f766e;
+     color: #115e59;
    }
    .f9-audio-host[data-dir="out"] .f9-audio-player[data-state="playing"] {
-     border-color: #f5d76e;
-     box-shadow: 0 0 0 3px rgba(234, 179, 8, 0.16);
+     border-color: #99d5cf;
+     box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
    }
    /* NÃO forçar display/width em pais genéricos — isso empurrava a TextArea */
    a.f9-audio-hidden-link {
@@ -2078,8 +2182,8 @@
      background: #fff7f7;
    }
    .f9-audio-player[data-state="playing"] {
-     border-color: #99d5cf;
-     box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.08);
+     border-color: #cbd5e1;
+     box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.18);
    }
    .f9-audio-play {
      flex: 0 0 auto;
@@ -2091,9 +2195,9 @@
      display: inline-flex;
      align-items: center;
      justify-content: center;
-     background: #0f766e;
+     background: #94a3b8;
      color: #fff;
-     box-shadow: 0 2px 6px rgba(15, 118, 110, 0.28);
+     box-shadow: 0 2px 6px rgba(100, 116, 139, 0.28);
      transition: transform .12s ease, filter .12s ease, background .12s ease;
    }
    .f9-audio-play:hover { filter: brightness(1.06); transform: scale(1.04); }
@@ -2130,7 +2234,7 @@
      width: 13px;
      height: 13px;
      border-radius: 50%;
-     background: #0f766e;
+     background: #94a3b8;
      border: 2px solid #fff;
      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.25);
      cursor: pointer;
@@ -2139,7 +2243,7 @@
      width: 13px;
      height: 13px;
      border-radius: 50%;
-     background: #0f766e;
+     background: #94a3b8;
      border: 2px solid #fff;
      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.25);
      cursor: pointer;
@@ -3383,12 +3487,6 @@
         kind: "ok",
       },
       {
-        re: /Exportado/i,
-        title: "Exportado",
-        message: "Arquivo JSON baixado com seus modelos.",
-        kind: "ok",
-      },
-      {
         re: /Digite o texto do modelo/i,
         title: "Falta a mensagem",
         message: "Escreva o texto que será colado no chat.",
@@ -4098,7 +4196,7 @@
     aiObserver.observe(document.body, {
       childList: true,
       subtree: true,
-      characterData: true,
+      // characterData removido — dispara demais e não ajuda a sugestão
     });
 
     if (routeWatchTimer) clearInterval(routeWatchTimer);
@@ -4115,6 +4213,9 @@
     aiLastContextKey = "";
     syncRouteVisibility();
     scheduleAiRefresh(true);
+    try {
+      scheduleImageScan(true);
+    } catch (_) {}
   };
 
   const stopAiWatch = () => {
@@ -5166,7 +5267,7 @@
       });
 
     // Sem abrir nova aba: tenta baixar de verdade para o disco
-    viaXhrBuffer(false)
+    return viaXhrBuffer(false)
       .catch((err) => {
         console.warn("[Five9 Modelos] download xhr:", err);
         return viaXhrBuffer(true);
@@ -5179,12 +5280,16 @@
         console.warn("[Five9 Modelos] download gm:", err);
         return viaCanvasFromDom();
       })
-      .then(() => finishOk())
+      .then(() => {
+        finishOk();
+        return true;
+      })
       .catch((err) => {
         console.warn("[Five9 Modelos] download mídia:", err);
         finishErr(
           "Falha ao baixar. No Tampermonkey → script → Permissões, permita *.nuvetoapps.com.br e recarregue."
         );
+        throw err;
       });
   };
 
@@ -5232,6 +5337,89 @@
 
   const mediaPreviewBlobCache = new Map();
   const MEDIA_PLAY_BADGE = `<span class="f9-media-playbadge" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v13.72L19 12 8 5.14z"/></svg></span>`;
+  let lbNavToken = 0;
+  let lbGallery = [];
+  let lbGalleryIndex = -1;
+
+  const urlsRoughlyEqual = (a, b) => {
+    const sa = String(a || "");
+    const sb = String(b || "");
+    if (!sa || !sb) return false;
+    if (sa === sb) return true;
+    const ca = sa.split(/[?#]/)[0];
+    const cb = sb.split(/[?#]/)[0];
+    if (ca && ca === cb) return true;
+    const la = ca.split("/").filter(Boolean).pop() || "";
+    const lb = cb.split("/").filter(Boolean).pop() || "";
+    return !!(la && lb && la.length >= 8 && la === lb);
+  };
+
+  /** Cards de preview do chat aberto, na ordem do DOM (sem sidebar). */
+  const collectLightboxGallery = () => {
+    const out = [];
+    const seen = new Set();
+    try {
+      document.querySelectorAll(".f9-media-card[data-f9-url]").forEach((card) => {
+        try {
+          if (isSocialSidebarListItem(card) || isClearlySidebar(card)) return;
+          if (card.closest?.("#" + PANEL_ID)) return;
+          const url = card.getAttribute("data-f9-url") || "";
+          if (!url) return;
+          const kind = card.getAttribute("data-kind") || mediaKindFromUrl(url) || "image";
+          if (kind !== "image" && kind !== "video") return;
+          const key = url.split(/[?#]/)[0] || url;
+          if (seen.has(key)) return;
+          seen.add(key);
+          out.push({ url, kind });
+        } catch (_) {}
+      });
+    } catch (_) {}
+    return out;
+  };
+
+  const syncLightboxNavUi = (box) => {
+    if (!box) return;
+    const prev = box.querySelector(".f9-lb-prev");
+    const next = box.querySelector(".f9-lb-next");
+    const counter = box.querySelector(".f9-lb-counter");
+    const n = lbGallery.length;
+    const i = lbGalleryIndex;
+    const show = n > 1;
+    if (prev) {
+      prev.classList.toggle("is-hidden", !show);
+      prev.disabled = !show;
+      prev.setAttribute("aria-hidden", show ? "false" : "true");
+    }
+    if (next) {
+      next.classList.toggle("is-hidden", !show);
+      next.disabled = !show;
+      next.setAttribute("aria-hidden", show ? "false" : "true");
+    }
+    if (counter) {
+      counter.textContent = show && i >= 0 ? `${i + 1} / ${n}` : "";
+    }
+  };
+
+  const navigateLightbox = (delta) => {
+    const box = document.getElementById("f9-media-lightbox");
+    if (!box?.classList.contains("is-open")) return;
+    if (!lbGallery.length) {
+      lbGallery = collectLightboxGallery();
+      const cur = box.dataset.f9Url || "";
+      lbGalleryIndex = lbGallery.findIndex((g) => urlsRoughlyEqual(g.url, cur));
+    }
+    if (lbGallery.length < 2) {
+      syncLightboxNavUi(box);
+      return;
+    }
+    let i = lbGalleryIndex;
+    if (i < 0) i = 0;
+    i = (i + delta + lbGallery.length) % lbGallery.length;
+    const item = lbGallery[i];
+    if (!item) return;
+    lbGalleryIndex = i;
+    openMediaLightbox(item.url, item.kind, { fromNav: true });
+  };
 
   const sniffPreviewMime = (bytes, kind, hintType) => {
     const hint = String(hintType || "").split(";")[0].trim().toLowerCase();
@@ -5645,8 +5833,14 @@
 
   const ensureMediaLightbox = () => {
     let box = document.getElementById("f9-media-lightbox");
-    if (box && (!box.querySelector(".f9-lb-zin") || !box.querySelector(".f9-lb-rotcw"))) {
-      // lightbox antigo sem zoom/rotação — recria
+    if (
+      box &&
+      (!box.querySelector(".f9-lb-zin") ||
+        !box.querySelector(".f9-lb-rotcw") ||
+        !box.querySelector(".f9-lb-prev svg") ||
+        !box.querySelector(".f9-lb-counter"))
+    ) {
+      // lightbox antigo sem zoom/rotação/nav SVG — recria
       try {
         box.remove();
       } catch (_) {}
@@ -5655,12 +5849,19 @@
     if (box) return box;
     box = document.createElement("div");
     box.id = "f9-media-lightbox";
+    const chevL =
+      '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 6l-6 6 6 6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    const chevR =
+      '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     box.innerHTML = `
       <div class="f9-lb-backdrop" data-lb="close"></div>
       <div class="f9-lb-stage">
+        <span class="f9-lb-counter" aria-live="polite"></span>
+        <button type="button" class="f9-lb-nav f9-lb-prev" data-lb="prev" title="Anterior (←)" aria-label="Mídia anterior">${chevL}</button>
+        <button type="button" class="f9-lb-nav f9-lb-next" data-lb="next" title="Próxima (→)" aria-label="Próxima mídia">${chevR}</button>
         <div class="f9-lb-media" data-el="media"></div>
         <div class="f9-lb-bar">
-          <span class="f9-lb-zoomlabel">Zoom 100% · scroll para ampliar</span>
+          <span class="f9-lb-zoomlabel">Zoom 100% · scroll para ampliar · ← → navegar</span>
           <button type="button" class="f9-lb-zout" data-lb="zoomout" title="Diminuir">−</button>
           <button type="button" class="f9-lb-zin" data-lb="zoomin" title="Ampliar">+</button>
           <button type="button" class="f9-lb-zreset" data-lb="zoomreset" title="Resetar zoom">1:1</button>
@@ -5682,6 +5883,8 @@
       if (act === "download") {
         downloadLightboxMedia(box);
       }
+      if (act === "prev") navigateLightbox(-1);
+      if (act === "next") navigateLightbox(1);
       if (act === "zoomin") setLbZoomAt((lbZoom.scale || 1) * 1.25);
       if (act === "zoomout") setLbZoomAt((lbZoom.scale || 1) / 1.25);
       if (act === "zoomreset") resetLbZoom();
@@ -5690,7 +5893,17 @@
     });
     document.addEventListener("keydown", (e) => {
       if (!box.classList.contains("is-open")) return;
+      const tag = String(e.target?.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || e.target?.isContentEditable) return;
       if (e.key === "Escape") closeMediaLightbox();
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        navigateLightbox(-1);
+      }
+      if (e.key === "ArrowRight") {
+        e.preventDefault();
+        navigateLightbox(1);
+      }
       if (e.key === "+" || e.key === "=") {
         e.preventDefault();
         setLbZoomAt((lbZoom.scale || 1) * 1.2);
@@ -5732,15 +5945,33 @@
       media.innerHTML = "";
     }
     lbZoom = { scale: 1, x: 0, y: 0, rotation: 0, img: null, stage: null, label: null, hint: null };
+    lbGallery = [];
+    lbGalleryIndex = -1;
+    lbNavToken += 1;
     delete box.dataset.f9Url;
     delete box.dataset.f9Kind;
+    syncLightboxNavUi(box);
   };
 
-  const openMediaLightbox = async (url, kind) => {
+  const openMediaLightbox = async (url, kind, opts = {}) => {
     const box = ensureMediaLightbox();
     const stage = box.querySelector('[data-el="media"]');
+    const token = ++lbNavToken;
     box.dataset.f9Url = url;
     box.dataset.f9Kind = kind || "image";
+
+    if (!opts.fromNav) {
+      lbGallery = collectLightboxGallery();
+      lbGalleryIndex = lbGallery.findIndex((g) => urlsRoughlyEqual(g.url, url));
+      if (lbGalleryIndex < 0 && url) {
+        lbGallery.push({ url, kind: kind || "image" });
+        lbGalleryIndex = lbGallery.length - 1;
+      }
+    } else {
+      syncLightboxNavUi(box);
+    }
+    syncLightboxNavUi(box);
+
     try {
       stage._f9ZoomCleanup?.();
     } catch (_) {}
@@ -5748,7 +5979,10 @@
     const zoomLabel = box.querySelector(".f9-lb-zoomlabel");
     if (zoomLabel) {
       zoomLabel.style.display = kind === "video" ? "none" : "";
-      zoomLabel.textContent = "Zoom 100% · scroll para ampliar";
+      zoomLabel.textContent =
+        kind === "video"
+          ? "← → navegar entre mídias"
+          : "Zoom 100% · scroll para ampliar · ← → navegar";
     }
     box.querySelectorAll(".f9-lb-zin, .f9-lb-zout, .f9-lb-zreset, .f9-lb-rotcw, .f9-lb-rotccw").forEach((b) => {
       b.style.display = kind === "video" ? "none" : "";
@@ -5756,6 +5990,7 @@
     stage.innerHTML = `<div style="color:#94a3b8;padding:24px;font:13px Segoe UI,system-ui">Carregando…</div>`;
     box.classList.add("is-open");
     const mount = (src) => {
+      if (token !== lbNavToken) return;
       try {
         stage._f9ZoomCleanup?.();
       } catch (_) {}
@@ -5782,20 +6017,24 @@
       } catch (_) {
         src = url;
       }
+      if (token !== lbNavToken) return;
       mount(src);
       const mediaEl = stage.querySelector("img, video");
       if (mediaEl) {
         mediaEl.addEventListener(
           "error",
           async () => {
+            if (token !== lbNavToken) return;
             if (src !== url) {
               stage.innerHTML = `<div style="color:#fecaca;padding:24px;font:13px Segoe UI,system-ui;text-align:center">Não foi possível carregar a mídia.<br><button type="button" data-lb="open" style="margin-top:10px;border:1px solid #64748b;background:#1e293b;color:#e2e8f0;border-radius:8px;padding:6px 12px;cursor:pointer">Abrir em nova aba</button></div>`;
               return;
             }
             try {
               const blobSrc = await fetchMediaPreviewUrl(url, kind);
+              if (token !== lbNavToken) return;
               mount(blobSrc);
             } catch (_) {
+              if (token !== lbNavToken) return;
               stage.innerHTML = `<div style="color:#fecaca;padding:24px;font:13px Segoe UI,system-ui;text-align:center">Não foi possível carregar a mídia.<br><button type="button" data-lb="open" style="margin-top:10px;border:1px solid #64748b;background:#1e293b;color:#e2e8f0;border-radius:8px;padding:6px 12px;cursor:pointer">Abrir em nova aba</button></div>`;
             }
           },
@@ -5803,6 +6042,7 @@
         );
       }
     } catch (_) {
+      if (token !== lbNavToken) return;
       stage.innerHTML = `<div style="color:#fecaca;padding:24px;font:13px Segoe UI,system-ui;text-align:center">Não foi possível carregar a mídia.</div>`;
     }
   };
@@ -6056,9 +6296,9 @@
     }
   };
 
-  // No Five9, id="agent.…" aparece nos DOIS lados.
-  // data-dir lógico: out=nosso, in=motorista — mas na tela vinha invertido,
-  // então applyAudioDirFlip troca na hora de pintar (amarelo no nosso).
+  // data-dir: out = nosso (verde), in = motorista (cinza claro).
+  // NÃO usar id="agent.…" — no Five9 aparece nos dois lados.
+  // NÃO inverter (flip) legendas: isso fazia a cor oscilar.
   const recentSentAudioUrls = new Set();
   const markAudioUrlAsSentByUs = (url) => {
     if (!url) return;
@@ -6069,74 +6309,133 @@
     } catch (_) {}
   };
 
+  const AUDIO_CAPTION_OUT_RE =
+    /[aá]udio\s+enviado|mens+agem\s+de\s+voz\s+enviada/i;
+  const AUDIO_CAPTION_IN_RE =
+    /mens+agem\s+de\s+voz\s+recebida|[aá]udio\s+recebido|voz\s+recebida/i;
+
+  const getAudioHostUrl = (anchorEl, hostEl) =>
+    hostEl?.querySelector?.("[data-f9-audio-url]")?.getAttribute("data-f9-audio-url") ||
+    hostEl?.getAttribute?.("data-f9-audio-url") ||
+    anchorEl?.href ||
+    "";
+
+  /** Legenda nativa curta no bubble (inclui nós com display:none via textContent). */
+  const sniffAudioCaptionDir = (root) => {
+    if (!root || !root.querySelectorAll) return null;
+    try {
+      const locked = root.getAttribute?.("data-f9-caption-dir");
+      if (locked === "out" || locked === "in") return locked;
+    } catch (_) {}
+    const readText = (el) => {
+      try {
+        return String(el?.textContent || "")
+          .replace(/\s+/g, " ")
+          .trim();
+      } catch (_) {
+        return "";
+      }
+    };
+    let found = null;
+    try {
+      const els = root.querySelectorAll(
+        "span, div, p, font, label, strong, em, b, i, small, h1, h2, h3, h4, h5, h6"
+      );
+      for (let i = 0; i < els.length; i++) {
+        const el = els[i];
+        if (el.closest?.(".f9-audio-host, .f9-audio-player, .f9-media-card, #" + PANEL_ID)) {
+          continue;
+        }
+        const t = readText(el);
+        if (!t || t.length > 72) continue;
+        if (AUDIO_CAPTION_OUT_RE.test(t)) {
+          found = "out";
+          break;
+        }
+        if (AUDIO_CAPTION_IN_RE.test(t)) {
+          found = "in";
+          break;
+        }
+      }
+    } catch (_) {}
+    if (!found) {
+      const blob = readText(root).slice(0, 240);
+      if (AUDIO_CAPTION_OUT_RE.test(blob)) found = "out";
+      else if (AUDIO_CAPTION_IN_RE.test(blob)) found = "in";
+    }
+    return found;
+  };
+
+  /**
+   * @returns {{ dir: "out"|"in", confidence: "high"|"low" }}
+   */
   const detectAudioMessageDir = (anchorEl, bubble, hostEl) => {
-    const url =
-      hostEl?.querySelector?.("[data-f9-audio-url]")?.getAttribute("data-f9-audio-url") ||
-      hostEl?.getAttribute?.("data-f9-audio-url") ||
-      anchorEl?.href ||
-      "";
+    if (hostEl?.getAttribute?.("data-dir-locked") === "1") {
+      const locked = hostEl.getAttribute("data-dir");
+      if (locked === "out" || locked === "in") {
+        return { dir: locked, confidence: "high" };
+      }
+    }
+
+    const url = getAudioHostUrl(anchorEl, hostEl);
     if (url) {
       const raw = String(url);
       const base = raw.split(/[?#]/)[0];
-      if (recentSentAudioUrls.has(raw) || (base && recentSentAudioUrls.has(base))) return "out";
-      if (/audio-interacao-/i.test(raw)) return "out";
+      if (
+        recentSentAudioUrls.has(raw) ||
+        (base && recentSentAudioUrls.has(base)) ||
+        /audio-interacao-/i.test(raw)
+      ) {
+        return { dir: "out", confidence: "high" };
+      }
+    }
+
+    const hint =
+      hostEl?.getAttribute?.("data-f9-caption-dir") ||
+      bubble?.getAttribute?.("data-f9-caption-dir") ||
+      null;
+    if (hint === "out" || hint === "in") {
+      return { dir: hint, confidence: "high" };
     }
 
     const roots = [
-      hostEl,
-      anchorEl,
       bubble,
+      hostEl?.closest?.(".content"),
+      anchorEl?.closest?.(".content"),
       hostEl?.closest?.(".message-container"),
       anchorEl?.closest?.(".message-container"),
       bubble?.closest?.(".message-container"),
       findFive9MessageActorRoot(hostEl || anchorEl || bubble),
     ].filter(Boolean);
 
+    const seen = new Set();
     for (const el of roots) {
-      let t = "";
-      try {
-        t = String(el.textContent || "")
-          .replace(/\s+/g, " ")
-          .trim()
-          .slice(0, 160);
-      } catch (_) {}
-      if (/[aá]udio\s+enviado/i.test(t) || /mens+agem\s+de\s+voz\s+enviada/i.test(t)) return "out";
-      if (/mens+agem\s+de\s+voz\s+recebida|[aá]udio\s+recebido/i.test(t)) return "in";
+      if (seen.has(el)) continue;
+      seen.add(el);
+      const cap = sniffAudioCaptionDir(el);
+      if (cap) {
+        try {
+          hostEl?.setAttribute?.("data-f9-caption-dir", cap);
+          bubble?.setAttribute?.("data-f9-caption-dir", cap);
+        } catch (_) {}
+        return { dir: cap, confidence: "high" };
+      }
     }
 
+    // customer.*/contact.* costuma ser motorista — confiança média, ainda trava
     for (const el of roots) {
       try {
+        if (el.matches?.("[id^='customer.'], [id^='contact.'], [id^='client.'], [id^='visitor.']")) {
+          return { dir: "in", confidence: "high" };
+        }
         if (el.closest?.("[id^='customer.'], [id^='contact.'], [id^='client.'], [id^='visitor.']")) {
-          return "in";
+          return { dir: "in", confidence: "high" };
         }
       } catch (_) {}
     }
-    return "in";
-  };
 
-  // Corrige inversão observada: motorista vinha amarelo e o nosso verde.
-  const flipAudioDir = (dir) => (dir === "out" ? "in" : "out");
-
-  const resolvePaintDir = (anchorEl, bubble, hostEl) => {
-    const raw = detectAudioMessageDir(anchorEl, bubble, hostEl);
-    const url =
-      hostEl?.querySelector?.("[data-f9-audio-url]")?.getAttribute("data-f9-audio-url") ||
-      hostEl?.getAttribute?.("data-f9-audio-url") ||
-      anchorEl?.href ||
-      "";
-    // URLs que nós mandamos: sempre amarelo (out), sem flip
-    if (url) {
-      const rawUrl = String(url);
-      const base = rawUrl.split(/[?#]/)[0];
-      if (
-        recentSentAudioUrls.has(rawUrl) ||
-        (base && recentSentAudioUrls.has(base)) ||
-        /audio-interacao-/i.test(rawUrl)
-      ) {
-        return "out";
-      }
-    }
-    return flipAudioDir(raw);
+    // sem sinal claro: motorista (verde) — nunca chutar "nosso"
+    return { dir: "in", confidence: "low" };
   };
 
   const syncAudioHostWidths = (root = document) => {
@@ -6165,8 +6464,18 @@
   const syncAudioHostDirections = (root = document) => {
     try {
       root.querySelectorAll?.(".f9-audio-host").forEach((host) => {
-        const dir = resolvePaintDir(null, host.closest?.(".content") || null, host);
-        if (host.getAttribute("data-dir") !== dir) host.setAttribute("data-dir", dir);
+        if (host.getAttribute("data-dir-locked") === "1") return;
+        const bubble = host.closest?.(".content") || null;
+        const result = detectAudioMessageDir(null, bubble, host);
+        if (host.getAttribute("data-dir") !== result.dir) {
+          host.setAttribute("data-dir", result.dir);
+        }
+        if (result.confidence === "high") {
+          host.setAttribute("data-dir-locked", "1");
+          if (result.dir === "out") {
+            markAudioUrlAsSentByUs(getAudioHostUrl(null, host));
+          }
+        }
         host.closest?.(".message-container")?.classList?.remove("f9-agent-audio-out");
       });
       syncAudioHostWidths(root);
@@ -6876,8 +7185,10 @@
     await ensureAudioSource(url);
     await audioEngine.play();
     startAudioUiLoop();
-    if (!audioDockWatchTimer) {
-      audioDockWatchTimer = setInterval(syncAllAudioUis, 400);
+    // rAF já sincroniza o UI enquanto toca — evita setInterval paralelo
+    if (audioDockWatchTimer) {
+      clearInterval(audioDockWatchTimer);
+      audioDockWatchTimer = 0;
     }
     syncAllAudioUis();
   };
@@ -6968,14 +7279,31 @@
     if (!anchorEl || !url) return false;
     const applyDir = (host, bubble) => {
       if (!host) return;
-      const dir = resolvePaintDir(anchorEl, bubble, host);
-      host.setAttribute("data-dir", dir);
-      if (dir === "out") {
-        const u =
-          host.querySelector?.("[data-f9-audio-url]")?.getAttribute("data-f9-audio-url") ||
-          anchorEl?.href ||
-          "";
-        markAudioUrlAsSentByUs(u);
+      if (host.getAttribute("data-dir-locked") === "1") {
+        try {
+          syncAudioHostWidths(host.parentElement || document);
+        } catch (_) {}
+        return;
+      }
+      // Captura a legenda ANTES de esconder — trava a cor de uma vez
+      const preCap =
+        sniffAudioCaptionDir(bubble) ||
+        sniffAudioCaptionDir(host.closest?.(".content")) ||
+        sniffAudioCaptionDir(anchorEl?.closest?.(".message-container")) ||
+        sniffAudioCaptionDir(findFive9MessageActorRoot(anchorEl || bubble));
+      if (preCap) {
+        try {
+          host.setAttribute("data-f9-caption-dir", preCap);
+          bubble?.setAttribute?.("data-f9-caption-dir", preCap);
+        } catch (_) {}
+      }
+      const result = detectAudioMessageDir(anchorEl, bubble, host);
+      host.setAttribute("data-dir", result.dir);
+      if (result.confidence === "high") {
+        host.setAttribute("data-dir-locked", "1");
+        if (result.dir === "out") {
+          markAudioUrlAsSentByUs(getAudioHostUrl(anchorEl, host) || url);
+        }
       }
       const titleEl = host.querySelector(".f9-audio-title");
       if (titleEl && !/carregando|falha/i.test(titleEl.textContent || "")) {
@@ -7355,34 +7683,71 @@
     });
   };
 
+  let imgDlAudioDirTick = 0;
+
+  const MEDIA_SCAN_ANCHOR_SEL = [
+    "a[href*='anexos']:not([data-f9-img-dl-done='1'])",
+    "a[href*='.jpg']:not([data-f9-img-dl-done='1'])",
+    "a[href*='.jpeg']:not([data-f9-img-dl-done='1'])",
+    "a[href*='.png']:not([data-f9-img-dl-done='1'])",
+    "a[href*='.gif']:not([data-f9-img-dl-done='1'])",
+    "a[href*='.webp']:not([data-f9-img-dl-done='1'])",
+    "a[href*='.mp4']:not([data-f9-img-dl-done='1'])",
+    "a[href*='.mov']:not([data-f9-img-dl-done='1'])",
+    "a[href*='.oga']:not([data-f9-img-dl-done='1'])",
+    "a[href*='.ogg']:not([data-f9-img-dl-done='1'])",
+    "a[href*='.opus']:not([data-f9-img-dl-done='1'])",
+    "a[href*='.mp3']:not([data-f9-img-dl-done='1'])",
+    "a[href*='.m4a']:not([data-f9-img-dl-done='1'])",
+    "a[href*='.wav']:not([data-f9-img-dl-done='1'])",
+  ].join(",");
+
   const scanImageDownloads = () => {
     try {
+      if (typeof document !== "undefined" && document.hidden) return;
       cleanupBadButtons();
       const roots = collectScanRoots();
       for (let r = 0; r < roots.length; r++) {
         const doc = roots[r];
         const body = doc.body;
         if (!body) continue;
-        const anchors = body.querySelectorAll(
-          "a[href]:not([data-f9-img-dl-done='1']), a[href*='anexos'], a[href*='.jpg'], a[href*='.jpeg'], a[href*='.png'], a[href*='.mp4'], a[href*='.webp'], a[href*='.oga'], a[href*='.ogg'], a[href*='.opus'], a[href*='.mp3'], a[href*='.m4a']"
-        );
+        // só links que parecem mídia — evita varrer TODOS os <a> da página
+        const anchors = body.querySelectorAll(MEDIA_SCAN_ANCHOR_SEL);
         for (let i = 0; i < anchors.length; i++) processAnchor(anchors[i]);
-        const imgs = body.querySelectorAll("img[src]:not([data-f9-img-dl-done='1'])");
+        const imgs = body.querySelectorAll(
+          "img[src*='anexos']:not([data-f9-img-dl-done='1']), img[src*='.jpg']:not([data-f9-img-dl-done='1']), img[src*='.jpeg']:not([data-f9-img-dl-done='1']), img[src*='.png']:not([data-f9-img-dl-done='1']), img[src*='.webp']:not([data-f9-img-dl-done='1']), img[src*='.gif']:not([data-f9-img-dl-done='1'])"
+        );
         for (let j = 0; j < imgs.length; j++) processImg(imgs[j]);
         processTextMediaLinks(body);
       }
       try {
-        syncAllAudioUis();
-        syncAudioHostDirections(document);
+        // direção/largura do áudio: a cada 3 scans (~mais leve)
+        imgDlAudioDirTick = (imgDlAudioDirTick + 1) % 3;
+        if (imgDlAudioDirTick === 0 || document.querySelector(".f9-audio-host:not([data-dir])")) {
+          syncAudioHostDirections(document);
+        }
       } catch (_) {}
     } catch (e) {
       console.warn("[Five9 Modelos] scan mídia:", e);
     }
   };
 
-  const scheduleImageScan = () => {
+  const scheduleImageScan = (urgent = false) => {
+    if (urgent) {
+      if (scheduleImageScan._raf) return;
+      scheduleImageScan._raf = requestAnimationFrame(() => {
+        scheduleImageScan._raf = 0;
+        if (imgDlScanTimer) {
+          clearTimeout(imgDlScanTimer);
+          imgDlScanTimer = null;
+        }
+        scanImageDownloads();
+      });
+      return;
+    }
     if (imgDlScanTimer) clearTimeout(imgDlScanTimer);
-    imgDlScanTimer = setTimeout(scanImageDownloads, 150);
+    // 80ms coalesce — bem mais curto que 450ms (sumia o flash ao entrar no chat)
+    imgDlScanTimer = setTimeout(scanImageDownloads, 80);
   };
 
   const startImageDownloadWatch = () => {
@@ -7390,12 +7755,52 @@
     ensureAudioDock();
     scanImageDownloads();
     if (imgDlObserver) imgDlObserver.disconnect();
-    imgDlObserver = new MutationObserver(() => scheduleImageScan());
+    imgDlObserver = new MutationObserver((mutations) => {
+      for (let i = 0; i < mutations.length; i++) {
+        const m = mutations[i];
+        if (m.type === "childList" && (m.addedNodes?.length || m.removedNodes?.length)) {
+          // primeiro lote do chat: rAF; depois coalesce curto
+          scheduleImageScan(true);
+          return;
+        }
+      }
+    });
     if (document.body) {
-      imgDlObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
+      imgDlObserver.observe(document.body, { childList: true, subtree: true });
     }
     if (startImageDownloadWatch._iv) clearInterval(startImageDownloadWatch._iv);
-    startImageDownloadWatch._iv = setInterval(scanImageDownloads, 2000);
+    startImageDownloadWatch._iv = setInterval(() => {
+      if (!document.hidden) scanImageDownloads();
+    }, 4500);
+    // se algo falhar no enhance, libera o link após 2.5s (não fica invisível para sempre)
+    if (startImageDownloadWatch._failsafe) clearInterval(startImageDownloadWatch._failsafe);
+    startImageDownloadWatch._failsafe = setInterval(() => {
+      if (document.hidden) return;
+      try {
+        const pending = document.querySelectorAll(
+          "a[href*='anexos']:not([data-f9-img-dl-done]), a[href*='.oga']:not([data-f9-img-dl-done]), a[href*='.ogg']:not([data-f9-img-dl-done]), a[href*='.jpg']:not([data-f9-img-dl-done]), a[href*='.png']:not([data-f9-img-dl-done]), a[href*='.mp4']:not([data-f9-img-dl-done])"
+        );
+        const now = Date.now();
+        for (let i = 0; i < pending.length; i++) {
+          const a = pending[i];
+          const t0 = Number(a.dataset.f9PendingSince || 0);
+          if (!t0) {
+            a.dataset.f9PendingSince = String(now);
+            continue;
+          }
+          if (now - t0 > 2500) {
+            a.dataset.f9ImgDlDone = "1";
+            delete a.dataset.f9PendingSince;
+          }
+        }
+      } catch (_) {}
+    }, 900);
+    if (!startImageDownloadWatch._visBound) {
+      startImageDownloadWatch._visBound = true;
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) scheduleImageScan(true);
+      });
+    }
   };
 
   const stopImageDownloadWatch = () => {
@@ -7407,10 +7812,21 @@
       clearTimeout(imgDlScanTimer);
       imgDlScanTimer = null;
     }
+    if (scheduleImageScan._raf) {
+      cancelAnimationFrame(scheduleImageScan._raf);
+      scheduleImageScan._raf = 0;
+    }
     if (startImageDownloadWatch._iv) {
       clearInterval(startImageDownloadWatch._iv);
       startImageDownloadWatch._iv = null;
     }
+    if (startImageDownloadWatch._failsafe) {
+      clearInterval(startImageDownloadWatch._failsafe);
+      startImageDownloadWatch._failsafe = null;
+    }
+    try {
+      document.getElementById("f9-bulk-dl")?.remove();
+    } catch (_) {}
     document.querySelectorAll(
       "button.f9-img-dl-btn, .f9-media-dl-row, .f9-media-dl-wrap, .f9-audio-player, .f9-audio-host, .f9-media-card"
     ).forEach((n) => {
@@ -8479,7 +8895,9 @@
         });
       }
     } catch (_) {}
-    interacaoPollTimer = setInterval(() => ensureInteracaoTab(false), 250);
+    interacaoPollTimer = setInterval(() => {
+      if (!document.hidden) ensureInteracaoTab(false);
+    }, 900);
   };
 
   const stopInteracaoPrefer = () => {
