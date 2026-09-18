@@ -1,12 +1,12 @@
 {
- "version": "26.9.6",
- "changelog": "Ajuste no reprodutor de áudio, identificação no áudio motorista/usuário, navegação entre imagens",
+ "version": "26.9.7",
+ "changelog": "Card de mapa adicionado, com visualização da geolocalização direto pelo chat!",
  "downloadUrl": "https://raw.githubusercontent.com/arthurvihoficial/five9-modelos-mensagem/refs/heads/main/src/five9-modelos.user.js",
  "publishedAt": "2026-09-15",
  "scripts": [
    {
      "id": "modelos",
-     "version": "26.9.6",
+     "version": "26.9.7",
      "downloadUrl": "https://raw.githubusercontent.com/arthurvihoficial/five9-modelos-mensagem/refs/heads/main/src/five9-modelos.user.js"
    },
    {
