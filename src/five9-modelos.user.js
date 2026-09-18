@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Five9 – Modelos de Mensagem
 // @namespace    https://github.com/local/five9-templates
-// @version      26.9.6
-// @description  Painel de modelos Five9: pastas, sugestão, download, player, preview e gravação de áudio na Interação.
+// @version      26.9.7
+// @description  Painel de modelos Five9: pastas, sugestão, download, player, preview, mapa e gravação de áudio na Interação.
 // @author       Arthur Vinícius
 // @match        https://app-atl.five9.com/clients/agent/*
 // @match        *://app-atl.five9.com/*
@@ -41,7 +41,7 @@
   const FORM_MODAL_ID = "five9-model-form-modal";
   const TARGET_KEY = "five9_msg_target_hint_v1";
   const DEFAULT_TAG = "Geral";
-  const APP_VERSION = "26.9.6";
+  const APP_VERSION = "26.9.7";
   const AI_MIN_SCORE = 2.2;
   const AI_DRAFT_MIN_SCORE = 1.6;
   const AI_DRAFT_MIN_CHARS = 2;
@@ -70,7 +70,10 @@
       'a[href*=".m4a"]:not([data-f9-img-dl-done]),',
       'a[href*=".wav"]:not([data-f9-img-dl-done]),',
       'a[href*=".aac"]:not([data-f9-img-dl-done]),',
-      'a[href*=".webm"]:not([data-f9-img-dl-done])',
+      'a[href*=".webm"]:not([data-f9-img-dl-done]),',
+      'a[href*="google.com/maps"]:not([data-f9-img-dl-done]),',
+      'a[href*="maps.google"]:not([data-f9-img-dl-done]),',
+      'a[href*="maps.app.goo.gl"]:not([data-f9-img-dl-done])',
       "{ display: none !important; }",
     ].join("");
     (document.documentElement || document.head || document.body)?.appendChild?.(s);
@@ -904,7 +907,7 @@
           FORM_MODAL_ID +
           ", #" +
           UPDATE_FLOAT_ID +
-          ", #f9-voice-wrap, #f9-voice-panel, #f9-media-lightbox, .f9-audio-player, .f9-media-card"
+          ", #f9-voice-wrap, #f9-voice-panel, #f9-media-lightbox, #f9-map-lightbox, .f9-audio-player, .f9-media-card, .f9-map-card"
       )
     );
 
@@ -1573,7 +1576,7 @@
    #${PANEL_ID} details.ft-add[open] > summary { margin-bottom: 8px; }
    #${PANEL_ID} .ft-add-grid { display: grid; gap: 8px; }
    #${PANEL_ID}-modal {
-     position: fixed; inset: 0; z-index: 12000; display: none;
+     position: fixed; inset: 0; z-index: 2147483700; display: none;
      align-items: center; justify-content: center;
      background: rgba(15, 23, 42, 0.35); padding: 16px;
    }
@@ -1884,6 +1887,210 @@
    }
    a.f9-media-hidden-link { display: none !important; }
    .f9-media-caption-hidden { display: none !important; }
+
+   /* ── Card de geolocalização (Maps) ─────────────────────── */
+   .f9-map-card {
+     display: block !important;
+     width: 100% !important;
+     max-width: 100% !important;
+     min-width: 100% !important;
+     margin: 4px 0 2px;
+     box-sizing: border-box;
+     border-radius: 12px;
+     border: 1px solid #dbe4ef;
+     background: #fff;
+     overflow: hidden;
+     box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+     flex: 1 1 auto !important;
+     align-self: stretch !important;
+   }
+   /* Five9 .content é flex — estica o mapa na largura do bubble */
+   .message-container .content:has(.f9-map-card),
+   [id^="agent."] > .content:has(.f9-map-card),
+   [id^="customer."] > .content:has(.f9-map-card) {
+     display: flex !important;
+     flex-direction: column !important;
+     align-items: stretch !important;
+     width: 100% !important;
+     max-width: 100% !important;
+     box-sizing: border-box;
+   }
+   .message-container .content .f9-map-card,
+   [id^="agent."] .content .f9-map-card,
+   [id^="customer."] .content .f9-map-card {
+     width: 100% !important;
+     max-width: 100% !important;
+     min-width: 0 !important;
+   }
+   .f9-map-card .f9-map-thumb {
+     display: block;
+     width: 100% !important;
+     height: 84px;
+     border: 0;
+     padding: 0;
+     margin: 0;
+     cursor: zoom-in;
+     position: relative;
+     overflow: hidden;
+     background:
+       radial-gradient(circle at 50% 48%, rgba(239, 68, 68, 0.16), transparent 40%),
+       linear-gradient(135deg, rgba(15, 118, 110, 0.1), transparent 45%),
+       repeating-linear-gradient(0deg, transparent, transparent 13px, rgba(148, 163, 184, 0.22) 14px),
+       repeating-linear-gradient(90deg, transparent, transparent 13px, rgba(148, 163, 184, 0.22) 14px),
+       linear-gradient(165deg, #e7f0ea 0%, #d5e4da 48%, #c7d8cd 100%);
+   }
+   .f9-map-card .f9-map-thumb img.f9-map-static {
+     position: absolute;
+     inset: 0;
+     width: 100%;
+     height: 100%;
+     object-fit: cover;
+     display: block;
+   }
+   .f9-map-card .f9-map-pin {
+     position: absolute;
+     left: 50%;
+     top: 48%;
+     transform: translate(-50%, -100%);
+     width: 26px;
+     height: 26px;
+     filter: drop-shadow(0 4px 8px rgba(15, 23, 42, 0.28));
+     z-index: 2;
+     pointer-events: none;
+   }
+   .f9-map-card .f9-map-pin svg { width: 26px; height: 26px; display: block; }
+   .f9-map-card .f9-map-pulse {
+     position: absolute;
+     left: 50%;
+     top: 48%;
+     width: 10px;
+     height: 10px;
+     margin: -1px 0 0 -5px;
+     border-radius: 50%;
+     background: rgba(239, 68, 68, 0.35);
+     z-index: 1;
+     pointer-events: none;
+     animation: f9-map-pulse 1.6s ease-out infinite;
+   }
+   @keyframes f9-map-pulse {
+     0% { transform: scale(0.6); opacity: 0.7; }
+     70% { transform: scale(2.2); opacity: 0; }
+     100% { transform: scale(2.2); opacity: 0; }
+   }
+   .f9-map-card .f9-map-actions {
+     display: flex;
+     align-items: center;
+     gap: 8px;
+     padding: 6px 8px;
+     background: #fff;
+     border-top: 1px solid #e8eef5;
+   }
+   .f9-map-card .f9-map-hint {
+     flex: 1 1 auto;
+     min-width: 0;
+     color: #475569;
+     font: 600 11px/1.25 "Segoe UI", system-ui, sans-serif;
+   }
+   .f9-map-card .f9-map-coords {
+     display: block;
+     margin-top: 1px;
+     color: #64748b;
+     font: 500 10px/1.2 "Segoe UI", system-ui, sans-serif;
+     font-variant-numeric: tabular-nums;
+     white-space: nowrap;
+     overflow: hidden;
+     text-overflow: ellipsis;
+   }
+   .f9-map-card .f9-map-open-ext {
+     flex: 0 0 auto;
+     border: 1px solid #d7dee8;
+     border-radius: 7px;
+     background: #fff;
+     color: #334155;
+     padding: 5px 8px;
+     font: 600 10px/1 "Segoe UI", system-ui, sans-serif;
+     cursor: pointer;
+   }
+   .f9-map-card .f9-map-open-ext:hover {
+     background: #eff6ff;
+     border-color: #93c5fd;
+     color: #1d4ed8;
+   }
+
+   #f9-map-lightbox {
+     position: fixed;
+     inset: 0;
+     z-index: 2147483600;
+     display: none;
+     align-items: center;
+     justify-content: center;
+     padding: 24px;
+     box-sizing: border-box;
+   }
+   #f9-map-lightbox.is-open { display: flex; }
+   #f9-map-lightbox .f9-mlb-backdrop {
+     position: absolute;
+     inset: 0;
+     background: rgba(15, 23, 42, 0.78);
+     backdrop-filter: blur(2px);
+   }
+   #f9-map-lightbox .f9-mlb-stage {
+     position: relative;
+     z-index: 1;
+     width: min(920px, 100%);
+     max-height: min(86vh, 900px);
+     display: flex;
+     flex-direction: column;
+     gap: 10px;
+   }
+   #f9-map-lightbox .f9-mlb-frame-wrap {
+     flex: 1 1 auto;
+     min-height: min(62vh, 640px);
+     background: #0b1220;
+     border-radius: 14px;
+     overflow: hidden;
+     border: 1px solid rgba(255,255,255,.08);
+     box-shadow: 0 24px 60px rgba(0,0,0,.35);
+     position: relative;
+   }
+   #f9-map-lightbox .f9-mlb-frame-wrap iframe {
+     position: absolute;
+     inset: 0;
+     width: 100%;
+     height: 100%;
+     border: 0;
+     background: #e7efe9;
+   }
+   #f9-map-lightbox .f9-mlb-bar {
+     display: flex;
+     align-items: center;
+     gap: 8px;
+     flex-wrap: wrap;
+     justify-content: flex-end;
+   }
+   #f9-map-lightbox .f9-mlb-meta {
+     margin-right: auto;
+     color: #e2e8f0;
+     font: 600 12px/1.35 "Segoe UI", system-ui, sans-serif;
+   }
+   #f9-map-lightbox .f9-mlb-meta small {
+     display: block;
+     margin-top: 2px;
+     color: #94a3b8;
+     font-weight: 500;
+     font-variant-numeric: tabular-nums;
+   }
+   #f9-map-lightbox .f9-mlb-bar button {
+     border: 0;
+     border-radius: 10px;
+     padding: 9px 12px;
+     cursor: pointer;
+     font: 600 12px/1 "Segoe UI", system-ui, sans-serif;
+   }
+   #f9-map-lightbox .f9-mlb-copy { background: #1e293b; color: #e2e8f0; }
+   #f9-map-lightbox .f9-mlb-open { background: #0f766e; color: #fff; }
+   #f9-map-lightbox .f9-mlb-close { background: #fff; color: #0f172a; }
+
    /* Anti-flash (espelha o style precoce): link cru some até processar */
    a[href*="anexos"]:not([data-f9-img-dl-done]),
    a[href*=".jpg"]:not([data-f9-img-dl-done]),
@@ -1900,7 +2107,10 @@
    a[href*=".m4a"]:not([data-f9-img-dl-done]),
    a[href*=".wav"]:not([data-f9-img-dl-done]),
    a[href*=".aac"]:not([data-f9-img-dl-done]),
-   a[href*=".webm"]:not([data-f9-img-dl-done]) {
+   a[href*=".webm"]:not([data-f9-img-dl-done]),
+   a[href*="google.com/maps"]:not([data-f9-img-dl-done]),
+   a[href*="maps.google"]:not([data-f9-img-dl-done]),
+   a[href*="maps.app.goo.gl"]:not([data-f9-img-dl-done]) {
      display: none !important;
    }
    /* NÃO usar div:has(> .f9-media-card) — quebrava o layout da Interação */
@@ -2531,7 +2741,7 @@
      margin-top: 10px;
    }
    #${TOAST_ID} {
-     position: fixed; right: 16px; bottom: 16px; z-index: 2147483600;
+     position: fixed; right: 16px; bottom: 16px; z-index: 2147483750;
      width: min(360px, calc(100vw - 24px));
      opacity: 0; transform: translateY(10px) scale(0.98);
      pointer-events: none;
@@ -2570,7 +2780,7 @@
    }
    #${TOAST_ID} .ft-toast-close:hover { background: rgba(15,23,42,.06); color: #374151; }
    #${FORM_MODAL_ID} {
-     position: fixed; inset: 0; z-index: 12010; display: none;
+     position: fixed; inset: 0; z-index: 2147483700; display: none;
      align-items: center; justify-content: center;
      background: rgba(15, 23, 42, 0.4); padding: 16px;
    }
@@ -6461,6 +6671,24 @@
     } catch (_) {}
   };
 
+  const syncMapCardWidths = (root = document) => {
+    try {
+      root.querySelectorAll?.(".f9-map-card").forEach((card) => {
+        const box =
+          card.closest?.(".content") ||
+          card.closest?.(".message-container") ||
+          card.parentElement;
+        if (!box) return;
+        const w = Math.floor(box.getBoundingClientRect?.().width || box.clientWidth || 0);
+        if (w > 48) {
+          card.style.width = "100%";
+          card.style.maxWidth = "100%";
+          card.style.minWidth = "0";
+        }
+      });
+    } catch (_) {}
+  };
+
   const syncAudioHostDirections = (root = document) => {
     try {
       root.querySelectorAll?.(".f9-audio-host").forEach((host) => {
@@ -6614,6 +6842,271 @@
       wrap?.querySelectorAll("button.f9-img-dl-btn").forEach((b) => b.remove());
     } catch (_) {}
     hideRedundantMediaCaption(bubble, kind);
+    return true;
+  };
+
+  /* ── Geolocalização (Google Maps / WhatsApp location) ───── */
+  const MAP_PIN_SVG = `<svg class="f9-map-pin" viewBox="0 0 24 24" aria-hidden="true"><path fill="#ef4444" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6a2.5 2.5 0 0 1 0 5.5z"/><circle cx="12" cy="9" r="2.2" fill="#fff"/></svg>`;
+
+  const isMapsLocationUrl = (raw) => {
+    const url = String(raw || "");
+    if (!url) return false;
+    if (/maps\.app\.goo\.gl|goo\.gl\/maps/i.test(url)) return true;
+    if (/(?:google\.[\w.]+\/maps|maps\.google\.)/i.test(url)) return true;
+    return false;
+  };
+
+  const parseMapsCoords = (rawUrl) => {
+    const url = String(rawUrl || "");
+    if (!url) return null;
+    const tryPair = (a, b) => {
+      const lat = Number(a);
+      const lng = Number(b);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+      if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+      return { lat, lng };
+    };
+    let m =
+      url.match(/[?&](?:query|q)=(-?\d+(?:\.\d+)?)(?:%2C|,)\s*(-?\d+(?:\.\d+)?)/i) ||
+      url.match(/@(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/) ||
+      url.match(/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/) ||
+      url.match(/\/search\/(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/) ||
+      url.match(/(-?\d{1,2}\.\d{3,}),\s*(-?\d{1,3}\.\d{3,})/);
+    if (m) return tryPair(m[1], m[2]);
+    try {
+      const u = new URL(url);
+      const q = u.searchParams.get("query") || u.searchParams.get("q") || "";
+      const parts = q.split(/[,\s]+/).filter(Boolean);
+      if (parts.length >= 2) return tryPair(parts[0], parts[1]);
+    } catch (_) {}
+    return null;
+  };
+
+  const formatMapsCoords = (coords) => {
+    if (!coords) return "";
+    return `${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}`;
+  };
+
+  const mapsEmbedUrl = (coords, originalUrl) => {
+    if (coords) {
+      return `https://maps.google.com/maps?q=${coords.lat},${coords.lng}&z=16&hl=pt-BR&output=embed`;
+    }
+    // short links sem coords: ainda tenta abrir o destino original
+    return String(originalUrl || "");
+  };
+
+  const mapsOpenUrl = (coords, originalUrl) => {
+    if (coords) {
+      return `https://www.google.com/maps/search/?api=1&query=${coords.lat}%2C${coords.lng}`;
+    }
+    return String(originalUrl || "");
+  };
+
+  const mapsStaticThumbUrl = (coords) => {
+    if (!coords) return "";
+    // preview leve via OSM (sem API key); se falhar, o card CSS já basta
+    const { lat, lng } = coords;
+    return `https://staticmap.openstreetmap.de/staticmap.php?center=${lat},${lng}&zoom=15&size=640x168&maptype=mapnik&markers=${lat},${lng},red-pushpin`;
+  };
+
+  const closeMapLightbox = () => {
+    const box = document.getElementById("f9-map-lightbox");
+    if (!box) return;
+    box.classList.remove("is-open");
+    const frame = box.querySelector("iframe");
+    if (frame) frame.src = "about:blank";
+    delete box.dataset.f9MapsUrl;
+    delete box.dataset.f9Lat;
+    delete box.dataset.f9Lng;
+  };
+
+  const ensureMapLightbox = () => {
+    let box = document.getElementById("f9-map-lightbox");
+    if (box) return box;
+    box = document.createElement("div");
+    box.id = "f9-map-lightbox";
+    box.innerHTML = `
+      <div class="f9-mlb-backdrop" data-mlb="close"></div>
+      <div class="f9-mlb-stage">
+        <div class="f9-mlb-frame-wrap"><iframe title="Mapa da localização" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe></div>
+        <div class="f9-mlb-bar">
+          <div class="f9-mlb-meta">
+            <span data-el="title">Localização do motorista</span>
+            <small data-el="coords"></small>
+          </div>
+          <button type="button" class="f9-mlb-copy" data-mlb="copy">Copiar coords</button>
+          <button type="button" class="f9-mlb-open" data-mlb="open">Abrir no Maps</button>
+          <button type="button" class="f9-mlb-close" data-mlb="close">Fechar</button>
+        </div>
+      </div>`;
+    document.body.appendChild(box);
+    box.addEventListener("click", async (e) => {
+      const act = e.target?.closest?.("[data-mlb]")?.getAttribute("data-mlb");
+      if (act === "close") closeMapLightbox();
+      if (act === "open") {
+        const url = box.dataset.f9MapsUrl;
+        if (!url) return;
+        try {
+          if (typeof GM_openInTab === "function") GM_openInTab(url, { active: true, insert: true });
+          else window.open(url, "_blank", "noopener");
+        } catch (_) {
+          window.open(url, "_blank");
+        }
+      }
+      if (act === "copy") {
+        const txt =
+          box.dataset.f9Lat && box.dataset.f9Lng
+            ? `${box.dataset.f9Lat}, ${box.dataset.f9Lng}`
+            : box.dataset.f9MapsUrl || "";
+        if (!txt) return;
+        try {
+          await navigator.clipboard.writeText(txt);
+          setStatus("Coordenadas copiadas.", "ok");
+        } catch (_) {
+          setStatus("Não consegui copiar as coordenadas.", "warn");
+        }
+      }
+    });
+    document.addEventListener("keydown", (e) => {
+      if (!box.classList.contains("is-open")) return;
+      if (e.key === "Escape") closeMapLightbox();
+    });
+    return box;
+  };
+
+  const openMapLightbox = (url, coords) => {
+    const box = ensureMapLightbox();
+    const frame = box.querySelector("iframe");
+    const coordsEl = box.querySelector('[data-el="coords"]');
+    const openUrl = mapsOpenUrl(coords, url);
+    const embed = mapsEmbedUrl(coords, url);
+    box.dataset.f9MapsUrl = openUrl;
+    if (coords) {
+      box.dataset.f9Lat = String(coords.lat);
+      box.dataset.f9Lng = String(coords.lng);
+      if (coordsEl) coordsEl.textContent = formatMapsCoords(coords);
+    } else {
+      delete box.dataset.f9Lat;
+      delete box.dataset.f9Lng;
+      if (coordsEl) coordsEl.textContent = "Abrindo mapa…";
+    }
+    if (frame) {
+      // só iframe com coords (embed estável); sem coords abre externa
+      if (coords && embed) frame.src = embed;
+      else frame.src = "about:blank";
+    }
+    box.classList.add("is-open");
+    if (!coords) {
+      try {
+        if (typeof GM_openInTab === "function") GM_openInTab(openUrl, { active: true, insert: true });
+        else window.open(openUrl, "_blank", "noopener");
+      } catch (_) {
+        window.open(openUrl, "_blank");
+      }
+      closeMapLightbox();
+    }
+  };
+
+  const enhanceLocationCard = (anchorEl, url) => {
+    if (!anchorEl || !url) return false;
+    if (anchorEl.dataset.f9MapCard === "1") return true;
+    if (anchorEl.closest(".f9-map-card")) {
+      anchorEl.dataset.f9MapCard = "1";
+      return true;
+    }
+    if (isOurUi(anchorEl) || isSocialSidebarListItem(anchorEl) || isClearlySidebar(anchorEl)) {
+      return false;
+    }
+    if (isComposerOrReplyArea(anchorEl)) return false;
+    if (!isMapsLocationUrl(url)) return false;
+
+    const bubble = findSafeMessageBubble(anchorEl);
+    if (!bubble) return false;
+
+    const safeAttr = String(url).replace(/"/g, "");
+    if (bubble.querySelector(`.f9-map-card[data-f9-url="${safeAttr}"]`)) {
+      anchorEl.classList.add("f9-media-hidden-link");
+      anchorEl.dataset.f9MapCard = "1";
+      return true;
+    }
+
+    const coords = parseMapsCoords(url);
+    const card = document.createElement("div");
+    card.className = "f9-map-card";
+    card.setAttribute("data-f9-map-card", "1");
+    card.setAttribute("data-f9-url", url);
+    if (coords) {
+      card.setAttribute("data-lat", String(coords.lat));
+      card.setAttribute("data-lng", String(coords.lng));
+    }
+    card.innerHTML = `
+      <button type="button" class="f9-map-thumb" aria-label="Ver localização no mapa">
+        <span class="f9-map-pulse" aria-hidden="true"></span>
+        ${MAP_PIN_SVG}
+      </button>
+      <div class="f9-map-actions">
+        <span class="f9-map-hint">Localização${coords ? "" : " · Maps"}
+          <span class="f9-map-coords">${coords ? formatMapsCoords(coords) : "Toque para abrir"}</span>
+        </span>
+        <button type="button" class="f9-map-open-ext" data-act="open">Maps</button>
+      </div>`;
+
+    const thumb = card.querySelector(".f9-map-thumb");
+    if (coords) {
+      const staticUrl = mapsStaticThumbUrl(coords);
+      if (staticUrl) {
+        const img = document.createElement("img");
+        img.className = "f9-map-static";
+        img.alt = "Mapa";
+        img.loading = "lazy";
+        img.decoding = "async";
+        img.referrerPolicy = "no-referrer";
+        img.src = staticUrl;
+        img.addEventListener(
+          "error",
+          () => {
+            try {
+              img.remove();
+            } catch (_) {}
+          },
+          { once: true }
+        );
+        thumb.insertBefore(img, thumb.firstChild);
+      }
+    }
+
+    const open = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openMapLightbox(url, coords);
+    };
+    thumb.addEventListener("click", open);
+    card.querySelector('[data-act="open"]')?.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const openUrl = mapsOpenUrl(coords, url);
+      try {
+        if (typeof GM_openInTab === "function") GM_openInTab(openUrl, { active: true, insert: true });
+        else window.open(openUrl, "_blank", "noopener");
+      } catch (_) {
+        window.open(openUrl, "_blank");
+      }
+    });
+
+    try {
+      if (anchorEl.parentNode && bubble.contains(anchorEl)) {
+        anchorEl.insertAdjacentElement("afterend", card);
+      } else {
+        bubble.appendChild(card);
+      }
+    } catch (_) {
+      bubble.appendChild(card);
+    }
+    anchorEl.classList.add("f9-media-hidden-link");
+    anchorEl.dataset.f9MapCard = "1";
+    try {
+      syncMapCardWidths(card.parentElement || bubble || document);
+    } catch (_) {}
     return true;
   };
 
@@ -7404,6 +7897,7 @@
   };
 
   const sidebarMediaLabel = (url) => {
+    if (isMapsLocationUrl(url)) return "Enviou uma localização";
     if (isAudioUrl(url)) return "Enviou um áudio";
     const kind = mediaKindFromUrl(url);
     if (kind === "video") return "Enviou um vídeo";
@@ -7414,14 +7908,14 @@
   const summarizeSidebarMediaAnchor = (anchorEl) => {
     if (!anchorEl || !anchorEl.isConnected) return;
     const href = anchorEl.href || anchorEl.getAttribute("href") || "";
-    if (!href || !(looksLikeMediaUrl(href) || maybeMediaUrl(href) || isAudioUrl(href))) return;
+    if (!href || !(looksLikeMediaUrl(href) || maybeMediaUrl(href) || isAudioUrl(href) || isMapsLocationUrl(href))) return;
 
     // remove cards/players que já vazaram para a lista
     try {
       const root =
         anchorEl.closest(".social-sidebar-item, [id^='lhs-item-'], .social-sidebar-item-content") ||
         anchorEl.parentElement;
-      root?.querySelectorAll?.(".f9-media-card, .f9-audio-host, .f9-audio-player, .f9-media-dl-wrap, button.f9-img-dl-btn").forEach((n) => {
+      root?.querySelectorAll?.(".f9-media-card, .f9-map-card, .f9-audio-host, .f9-audio-player, .f9-media-dl-wrap, button.f9-img-dl-btn").forEach((n) => {
         try {
           n.remove();
         } catch (_) {}
@@ -7452,7 +7946,7 @@
   const cleanupSidebarMediaPreviews = () => {
     document
       .querySelectorAll(
-        ".social-sidebar-item .f9-media-card, .social-sidebar-item .f9-audio-host, .social-sidebar-item .f9-audio-player, [id^='lhs-item-'] .f9-media-card, [id^='lhs-item-'] .f9-audio-host, [id^='lhs-item-'] .f9-audio-player, .agent-screen-social-sidebar-item-bottom .f9-media-card, .agent-screen-social-sidebar-item-bottom .f9-audio-host"
+        ".social-sidebar-item .f9-media-card, .social-sidebar-item .f9-map-card, .social-sidebar-item .f9-audio-host, .social-sidebar-item .f9-audio-player, [id^='lhs-item-'] .f9-media-card, [id^='lhs-item-'] .f9-map-card, [id^='lhs-item-'] .f9-audio-host, [id^='lhs-item-'] .f9-audio-player, .agent-screen-social-sidebar-item-bottom .f9-media-card, .agent-screen-social-sidebar-item-bottom .f9-map-card, .agent-screen-social-sidebar-item-bottom .f9-audio-host"
       )
       .forEach((n) => {
         try {
@@ -7506,6 +8000,15 @@
     // áudio: sempre tenta o player (mesmo se já marcado no download de mídia)
     if (isAudioUrl(href)) {
       enhanceAudioAnchor(a, href);
+      a.dataset.f9ImgDlDone = "1";
+      return;
+    }
+    // geolocalização (Maps / WhatsApp location)
+    if (isMapsLocationUrl(href)) {
+      if (enhanceLocationCard(a, href)) {
+        a.dataset.f9ImgDlDone = "1";
+        return;
+      }
       a.dataset.f9ImgDlDone = "1";
       return;
     }
@@ -7633,7 +8136,7 @@
   const cleanupBadButtons = () => {
     cleanupSidebarMediaPreviews();
     // remove players/cards que vazaram para perto da caixa de mensagem
-    document.querySelectorAll(".f9-audio-host, .f9-media-card").forEach((n) => {
+    document.querySelectorAll(".f9-audio-host, .f9-media-card, .f9-map-card").forEach((n) => {
       try {
         if (isComposerOrReplyArea(n) || n.closest?.(".f9-textarea-container, .container-reply-message, [data-f9-template='TextArea']")) {
           n.remove();
@@ -7674,7 +8177,7 @@
       }
     });
     // cards de preview que vazaram para a lista
-    document.querySelectorAll(".f9-media-card").forEach((card) => {
+    document.querySelectorAll(".f9-media-card, .f9-map-card").forEach((card) => {
       if (isSocialSidebarListItem(card) || isClearlySidebar(card)) {
         try {
           card.remove();
@@ -7700,6 +8203,9 @@
     "a[href*='.mp3']:not([data-f9-img-dl-done='1'])",
     "a[href*='.m4a']:not([data-f9-img-dl-done='1'])",
     "a[href*='.wav']:not([data-f9-img-dl-done='1'])",
+    "a[href*='google.com/maps']:not([data-f9-img-dl-done='1'])",
+    "a[href*='maps.google']:not([data-f9-img-dl-done='1'])",
+    "a[href*='maps.app.goo.gl']:not([data-f9-img-dl-done='1'])",
   ].join(",");
 
   const scanImageDownloads = () => {
@@ -7726,6 +8232,7 @@
         if (imgDlAudioDirTick === 0 || document.querySelector(".f9-audio-host:not([data-dir])")) {
           syncAudioHostDirections(document);
         }
+        if (imgDlAudioDirTick === 0) syncMapCardWidths(document);
       } catch (_) {}
     } catch (e) {
       console.warn("[Five9 Modelos] scan mídia:", e);
@@ -7828,7 +8335,7 @@
       document.getElementById("f9-bulk-dl")?.remove();
     } catch (_) {}
     document.querySelectorAll(
-      "button.f9-img-dl-btn, .f9-media-dl-row, .f9-media-dl-wrap, .f9-audio-player, .f9-audio-host, .f9-media-card"
+      "button.f9-img-dl-btn, .f9-media-dl-row, .f9-media-dl-wrap, .f9-audio-player, .f9-audio-host, .f9-media-card, .f9-map-card"
     ).forEach((n) => {
       if (n.classList?.contains("f9-media-dl-wrap")) {
         while (n.firstChild) n.parentNode?.insertBefore(n.firstChild, n);
@@ -7838,6 +8345,10 @@
     try {
       closeMediaLightbox();
       document.getElementById("f9-media-lightbox")?.remove();
+    } catch (_) {}
+    try {
+      closeMapLightbox();
+      document.getElementById("f9-map-lightbox")?.remove();
     } catch (_) {}
     try {
       mediaPreviewBlobCache.forEach((u) => {
